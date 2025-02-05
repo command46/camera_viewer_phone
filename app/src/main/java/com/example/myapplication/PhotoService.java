@@ -29,7 +29,7 @@ public class PhotoService extends Service {
     private static final int NOTIFICATION_ID = 1;
     private static final String CHANNEL_ID = "PhotoServiceChannel";
     private CameraManager cameraManager;
-    private List<String> cameraIds = new ArrayList<>();
+    private final List<String> cameraIds = new ArrayList<>();
     private Timer timer;
     private ImageReader imageReader;
     private CameraCaptureSession cameraCaptureSession;
@@ -37,12 +37,11 @@ public class PhotoService extends Service {
     private Handler mainHandler;
     private static String SERVER_IP = "192.168.31.214";
     private static final int SERVER_PORT = 12345;
-    private boolean isConnecting = false;
     private int currentCameraIndex = 0;
     private boolean isCameraBusy = false;
     private Notification notification;
-    private boolean isFrontCameraEnabled = true; // 控制前置摄像头是否拍照
-    private boolean isBackCameraEnabled = false; // 控制后置摄像头是否拍照  
+    private final boolean isFrontCameraEnabled = true; // 控制前置摄像头是否拍照
+    private final boolean isBackCameraEnabled = false; // 控制后置摄像头是否拍照
     @Override
 
     public void onCreate() {
@@ -116,7 +115,7 @@ public class PhotoService extends Service {
         }
 
         timer = new Timer();
-        timer.scheduleAtFixedRate(new TimerTask() {
+        timer.schedule(new TimerTask() {
             @Override
             public void run() {
                 if (!isCameraBusy) {
@@ -159,7 +158,7 @@ public class PhotoService extends Service {
                 public void onOpened(@NonNull CameraDevice camera) {
                     cameraDevice = camera;
                     try {
-                        List<Surface> surfaces = Arrays.asList(imageReader.getSurface());
+                        List<Surface> surfaces = Collections.singletonList(imageReader.getSurface());
                         camera.createCaptureSession(surfaces, new CameraCaptureSession.StateCallback() {
                             @Override
                             public void onConfigured(@NonNull CameraCaptureSession session) {

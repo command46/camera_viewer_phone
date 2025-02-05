@@ -32,10 +32,11 @@ public class MainActivity extends AppCompatActivity {
     private Button connectButton;
     private EditText ipAddressEditText;
     private String ipAddress;
-    private String[] REQUIRED_PERMISSIONS = {
+    private final String[] REQUIRED_PERMISSIONS = {
             Manifest.permission.CAMERA,
             Manifest.permission.RECORD_AUDIO,
             Manifest.permission.WRITE_EXTERNAL_STORAGE
+
     };
 
     @Override
@@ -55,7 +56,7 @@ public class MainActivity extends AppCompatActivity {
         connectButton.setOnClickListener(v -> {
             ipAddress = ipAddressEditText.getText().toString().trim();
             if (ipAddress.isEmpty()) {
-                Toast.makeText(this, "请输入电脑IP地址", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "请输入地址", Toast.LENGTH_SHORT).show();
                 return;
             }
             checkCameraPermissionAndStartService();

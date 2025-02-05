@@ -35,6 +35,7 @@ public class VideoService extends Service {
     private static final String SERVER_IP = "192.168.31.214"; // 服务器IP地址
     private static final int SERVER_PORT = 12346; // 视频服务端口
     private static final int SOCKET_TIMEOUT_MS = 10000; // Socket连接超时时间，毫秒
+    private static final boolean RECORD_AUDIO_ENABLED = false; // 控制是否录制音频
     private CameraManager cameraManager; // 相机管理器
     private CameraDevice cameraDevice; // 相机设备
     private CameraCaptureSession cameraCaptureSession; // 相机捕获会话
@@ -83,9 +84,13 @@ public class VideoService extends Service {
 
     // 检查权限
     private boolean checkPermissions() {
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED ||
-                ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            Log.e(TAG, "缺少相机或录音权限"); // 添加中文日志
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            Log.e(TAG, "缺少相机权限"); // 添加中文日志
+            Toast.makeText(this, "缺少必要权限，服务无法启动", Toast.LENGTH_SHORT).show();
+            return false;
+        }
+        if (RECORD_AUDIO_ENABLED && ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            Log.e(TAG, "缺少录音权限"); // 添加中文日志
             Toast.makeText(this, "缺少必要权限，服务无法启动", Toast.LENGTH_SHORT).show();
             return false;
         }
@@ -341,7 +346,9 @@ public class VideoService extends Service {
             }
 
             mediaRecorder = new MediaRecorder();
-            mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+            if (RECORD_AUDIO_ENABLED) {
+                mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+            }
             mediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
             mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
             mediaRecorder.setOutputFile(currentVideoFile.getAbsolutePath());
@@ -349,7 +356,9 @@ public class VideoService extends Service {
             mediaRecorder.setVideoFrameRate(30);
             mediaRecorder.setVideoSize(1280, 720);
             mediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
-            mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+            if (RECORD_AUDIO_ENABLED) {
+                mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+            }
             mediaRecorder.setOrientationHint(90);
 
             mediaRecorder.prepare();
