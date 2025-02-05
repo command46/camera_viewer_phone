@@ -1,12 +1,20 @@
 package com.example.myapplication;
 
 import android.Manifest;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.EdgeToEdge;
@@ -18,10 +26,19 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
+
+import com.github.mikephil.charting.charts.LineChart;
+import com.github.mikephil.charting.components.XAxis;
+import com.github.mikephil.charting.components.YAxis;
+import com.github.mikephil.charting.data.Entry;
+import com.github.mikephil.charting.data.LineData;
+import com.github.mikephil.charting.data.LineDataSet;
+import com.github.mikephil.charting.interfaces.datasets.ILineDataSet;
+
 import java.util.ArrayList;
 import java.util.List;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements SensorEventListener {
     private final boolean StartPhotoService = true;
     private final boolean StartVideoService = true;
     private final boolean StartCameraStreamService = false;
@@ -39,6 +56,14 @@ public class MainActivity extends AppCompatActivity {
 
     };
 
+    private SensorManager sensorManager;
+    private Sensor lightSensor;
+    private TextView lightSensorTextView;
+
+    private LineChart lightChart;
+    private LineDataSet lightDataSet;
+    private int dataSetSize = 100;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -50,9 +75,17 @@ public class MainActivity extends AppCompatActivity {
             return insets;
         });
 
+        // 初始化传感器
+        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        lightSensor = sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT);
+        lightSensorTextView = findViewById(R.id.lightSensorTextView);
+
+        if (lightSensor == null) {
+            lightSensorTextView.setText("Light Sensor: Not Available");
+        }
+
         connectButton = findViewById(R.id.connectButton);
         ipAddressEditText = findViewById(R.id.ipAddressEditText);
-
         connectButton.setOnClickListener(v -> {
             ipAddress = ipAddressEditText.getText().toString().trim();
             if (ipAddress.isEmpty()) {
@@ -61,6 +94,43 @@ public class MainActivity extends AppCompatActivity {
             }
             checkCameraPermissionAndStartService();
         });
+        SharedPreferences sharedPreferences = getPreferences(Context.MODE_PRIVATE);
+        String savedIpAddress = sharedPreferences.getString("IP_ADDRESS", "");
+        ipAddressEditText.setText(savedIpAddress);
+
+        lightChart = findViewById(R.id.lightChart);
+        setupLightChart();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (lightSensor != null) {
+            sensorManager.registerListener(this, lightSensor, SensorManager.SENSOR_DELAY_NORMAL);
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (lightSensor != null) {
+            sensorManager.unregisterListener(this);
+        }
+    }
+
+    @Override
+    public void onSensorChanged(SensorEvent event) {
+        if (event.sensor.getType() == Sensor.TYPE_LIGHT) {
+            float lightLevel = event.values[0];
+            lightSensorTextView.setText(String.format("Light Sensor: %.1f lux", lightLevel));
+
+            addLightEntry(lightLevel);
+        }
+    }
+
+    @Override
+    public void onAccuracyChanged(Sensor sensor, int accuracy) {
+        // 不需要处理精度变化
     }
 
     private void checkCameraPermissionAndStartService() {
@@ -150,5 +220,79 @@ public class MainActivity extends AppCompatActivity {
             return false;
         }
         return true;
+    }
+    @Override
+    protected void onStop() {
+        super.onStop();
+        // 保存当前输入的 IP 地址到 SharedPreferences
+        SharedPreferences sharedPreferences = getPreferences(Context.MODE_PRIVATE);
+        SharedPreferences.Editor editor = sharedPreferences.edit();
+        editor.putString("IP_ADDRESS", ipAddressEditText.getText().toString());
+        editor.apply();
+    }
+
+    private void setupLightChart() {
+        lightChart.getDescription().setEnabled(false);
+        lightChart.setTouchEnabled(false);
+        lightChart.setDragEnabled(false);
+        lightChart.setScaleEnabled(false);
+        lightChart.setDrawGridBackground(false);
+        lightChart.setPinchZoom(false);
+        lightChart.setBackgroundColor(Color.WHITE);
+        lightChart.setMaxHighlightDistance(300);
+
+        XAxis x = lightChart.getXAxis();
+        x.setEnabled(false);
+
+        YAxis y = lightChart.getAxisLeft();
+        y.setLabelCount(6, false);
+        y.setTextColor(Color.BLACK);
+        y.setPosition(YAxis.YAxisLabelPosition.INSIDE_CHART);
+        y.setDrawGridLines(false);
+        y.setAxisLineColor(Color.BLACK);
+
+        lightChart.getAxisRight().setEnabled(false);
+
+        lightDataSet = new LineDataSet(null, "Light");
+        lightDataSet.setLineWidth(2f);
+        lightDataSet.setColor(Color.BLUE);
+        lightDataSet.setMode(LineDataSet.Mode.CUBIC_BEZIER);
+        lightDataSet.setDrawValues(false);
+        lightDataSet.setDrawCircles(false);
+        lightDataSet.setHighLightColor(Color.BLUE);
+
+        LineData data = new LineData(lightDataSet);
+        lightChart.setData(data);
+    }
+
+    private void addLightEntry(float lightLevel) {
+        LineData data = lightChart.getData();
+
+        if (data != null) {
+            ILineDataSet set = data.getDataSetByIndex(0);
+
+            if (set == null) {
+                set = createLightSet();
+                data.addDataSet(set);
+            }
+
+            data.addEntry(new Entry(set.getEntryCount(), lightLevel), 0);
+            data.notifyDataChanged();
+
+            lightChart.notifyDataSetChanged();
+            lightChart.setVisibleXRangeMaximum(dataSetSize);
+            lightChart.moveViewToX(data.getEntryCount());
+        }
+    }
+
+    private LineDataSet createLightSet() {
+        LineDataSet set = new LineDataSet(null, "Light");
+        set.setLineWidth(2f);
+        set.setColor(Color.BLUE);
+        set.setMode(LineDataSet.Mode.CUBIC_BEZIER);
+        set.setDrawValues(false);
+        set.setDrawCircles(false);
+        set.setHighLightColor(Color.BLUE);
+        return set;
     }
 }
