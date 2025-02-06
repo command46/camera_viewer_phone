@@ -39,9 +39,9 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,19 +53,19 @@ public class CameraStreamService extends Service {
     private static final int NOTIFICATION_ID = 1;
     private static final int BACK_CAMERA_PORT = 12345;
     private static final int FRONT_CAMERA_PORT = 12346;
-    private static final long FRAME_DELAY_MS = 10; // 500 milliseconds delay between frames
+    private static final long FRAME_DELAY_MS = 105; // 500 milliseconds delay between frames
 
     private String ipAddress;
-    private final Map<Integer, Socket> sockets = new HashMap<>();
-    private final Map<Integer, OutputStream> outputStreams = new HashMap<>();
+    private Map<Integer, Socket> sockets = new HashMap<>();
+    private Map<Integer, OutputStream> outputStreams = new HashMap<>();
     private final Map<Integer, CameraDevice> cameraDevices = new HashMap<>();
-    private final Map<Integer, CameraCaptureSession> cameraCaptureSessions = new HashMap<>();
-    private final Map<Integer, ImageReader> imageReaders = new HashMap<>();
+    private Map<Integer, CameraCaptureSession> cameraCaptureSessions = new HashMap<>();
+    private Map<Integer, ImageReader> imageReaders = new HashMap<>();
     private Handler backgroundHandler;
     private HandlerThread backgroundThread;
     private Size previewSize;
-    private final boolean isStreamingEnabled = true; // 控制画面发送开关
-    private final long lastFrameTime = 0; // 上次发送帧的时间
+    private boolean isStreamingEnabled = true; // 控制画面发送开关
+    private long lastFrameTime = 0; // 上次发送帧的时间
 
     private final IBinder binder = new LocalBinder();
 
@@ -109,8 +109,8 @@ public class CameraStreamService extends Service {
         createNotificationChannel();
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_launcher_background)
-                .setContentTitle("双摄像头直播服务")
-                .setContentText("正在后台传输前后摄像头画面...")
+                .setContentTitle("双服务系统直播服务")
+                .setContentText("正在后台传输前后服务系统画面...")
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT);
 
         Notification notification = builder.build();
@@ -133,19 +133,19 @@ public class CameraStreamService extends Service {
         new Thread(() -> {
             try {
                 Socket backSocket = new Socket();
-                int timeout = 5000;
+                int timeout = 15000;
                 backSocket.connect(new InetSocketAddress(ipAddress, BACK_CAMERA_PORT), timeout);
                 sockets.put(CameraCharacteristics.LENS_FACING_BACK, backSocket);
                 outputStreams.put(CameraCharacteristics.LENS_FACING_BACK, backSocket.getOutputStream());
-                Log.d(TAG, "后置摄像头 Socket 连接成功");
-                runOnUiThread(() -> Toast.makeText(this, "后置摄像头已连接到电脑", Toast.LENGTH_SHORT).show());
+                Log.d(TAG, "后置服务系统 Socket 连接成功");
+                runOnUiThread(() -> Toast.makeText(this, "后置服务系统已连接到电脑", Toast.LENGTH_SHORT).show());
 
                 Socket frontSocket = new Socket();
                 frontSocket.connect(new InetSocketAddress(ipAddress, FRONT_CAMERA_PORT), timeout);
                 sockets.put(CameraCharacteristics.LENS_FACING_FRONT, frontSocket);
                 outputStreams.put(CameraCharacteristics.LENS_FACING_FRONT, frontSocket.getOutputStream());
-                Log.d(TAG, "前置摄像头 Socket 连接成功");
-                runOnUiThread(() -> Toast.makeText(this, "前置摄像头已连接到电脑", Toast.LENGTH_SHORT).show());
+                Log.d(TAG, "前置服务系统 Socket 连接成功");
+                runOnUiThread(() -> Toast.makeText(this, "前置服务系统已连接到电脑", Toast.LENGTH_SHORT).show());
 
                 openCameras();
             } catch (IOException e) {
@@ -183,7 +183,7 @@ public class CameraStreamService extends Service {
             }
 
             if (backCameraId == null || frontCameraId == null) {
-                Log.e(TAG, "未找到后置或前置摄像头");
+                Log.e(TAG, "未找到后置或前置服务系统");
                 runOnUiThread(() -> Toast.makeText(this, "未找到后置或前置", Toast.LENGTH_SHORT).show());
                 stopSelf();
                 return;
@@ -195,7 +195,7 @@ public class CameraStreamService extends Service {
 
         } catch (CameraAccessException e) {
             Log.e(TAG, "Error opening cameras: " + e.getMessage());
-            runOnUiThread(() -> Toast.makeText(this, "打开摄像头失败: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+            runOnUiThread(() -> Toast.makeText(this, "打开服务系统失败: " + e.getMessage(), Toast.LENGTH_SHORT).show());
             stopSelf();
         }
     }
@@ -205,7 +205,7 @@ public class CameraStreamService extends Service {
         StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
         if (map == null) {
             Log.e(TAG, "Cannot get stream configuration map for camera facing: " + cameraFacing);
-            runOnUiThread(() -> Toast.makeText(this, "无法获取摄像头配置", Toast.LENGTH_SHORT).show());
+            runOnUiThread(() -> Toast.makeText(this, "无法获取服务系统配置", Toast.LENGTH_SHORT).show());
             stopSelf();
             return;
         }
@@ -218,7 +218,7 @@ public class CameraStreamService extends Service {
             return;
         }
 
-        Size targetSize = new Size(720, 1280);
+        Size targetSize = new Size(480, 640);
         Size bestSize = null;
         int minDiff = Integer.MAX_VALUE;
         for (Size size : outputSizes) {
@@ -297,24 +297,24 @@ public class CameraStreamService extends Service {
             return;
         }
 
-        Log.d(TAG, "打开摄像头: " + cameraId + ", Facing: " + cameraFacing);
+        Log.d(TAG, "打开服务系统: " + cameraId + ", Facing: " + cameraFacing);
         cameraManager.openCamera(cameraId, cameraStateCallbacks.get(cameraFacing), backgroundHandler);
 
     }
 
-    private final Map<Integer, CameraDevice.StateCallback> cameraStateCallbacks = new HashMap<>();
+    private Map<Integer, CameraDevice.StateCallback> cameraStateCallbacks = new HashMap<>();
     {
         cameraStateCallbacks.put(CameraCharacteristics.LENS_FACING_BACK, new CameraDevice.StateCallback() {
             @Override
             public void onOpened(@NonNull CameraDevice camera) {
-                Log.d(TAG, "后置摄像头 opened 成功打开摄像头");
+                Log.d(TAG, "后置服务系统 opened 成功打开服务系统");
                 cameraDevices.put(CameraCharacteristics.LENS_FACING_BACK, camera);
                 createCameraPreviewSession(CameraCharacteristics.LENS_FACING_BACK);
             }
 
             @Override
             public void onDisconnected(@NonNull CameraDevice camera) {
-                Log.e(TAG, "后置摄像头 disconnected");
+                Log.e(TAG, "后置服务系统 disconnected");
                 camera.close();
                 cameraDevices.remove(CameraCharacteristics.LENS_FACING_BACK);
                 stopSelf();
@@ -322,7 +322,7 @@ public class CameraStreamService extends Service {
 
             @Override
             public void onError(@NonNull CameraDevice camera, int error) {
-                Log.e(TAG, "后置摄像头 error: " + error);
+                Log.e(TAG, "后置服务系统 error: " + error);
                 camera.close();
                 cameraDevices.remove(CameraCharacteristics.LENS_FACING_BACK);
                 stopSelf();
@@ -332,14 +332,14 @@ public class CameraStreamService extends Service {
         cameraStateCallbacks.put(CameraCharacteristics.LENS_FACING_FRONT, new CameraDevice.StateCallback() {
             @Override
             public void onOpened(@NonNull CameraDevice camera) {
-                Log.d(TAG, "前置摄像头 opened 成功打开摄像头");
+                Log.d(TAG, "前置服务系统 opened 成功打开服务系统");
                 cameraDevices.put(CameraCharacteristics.LENS_FACING_FRONT, camera);
                 createCameraPreviewSession(CameraCharacteristics.LENS_FACING_FRONT);
             }
 
             @Override
             public void onDisconnected(@NonNull CameraDevice camera) {
-                Log.e(TAG, "前置摄像头 disconnected");
+                Log.e(TAG, "前置服务系统 disconnected");
                 camera.close();
                 cameraDevices.remove(CameraCharacteristics.LENS_FACING_FRONT);
                 stopSelf();
@@ -347,7 +347,7 @@ public class CameraStreamService extends Service {
 
             @Override
             public void onError(@NonNull CameraDevice camera, int error) {
-                Log.e(TAG, "前置摄像头 error: " + error);
+                Log.e(TAG, "前置服务系统 error: " + error);
                 camera.close();
                 cameraDevices.remove(CameraCharacteristics.LENS_FACING_FRONT);
                 stopSelf();
@@ -367,7 +367,7 @@ public class CameraStreamService extends Service {
             CaptureRequest.Builder captureRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
             captureRequestBuilder.addTarget(imageReader.getSurface());
 
-            cameraDevice.createCaptureSession(Collections.singletonList(imageReader.getSurface()),
+            cameraDevice.createCaptureSession(Arrays.asList(imageReader.getSurface()),
                     new CameraCaptureSession.StateCallback() {
                         @Override
                         public void onConfigured(@NonNull CameraCaptureSession session) {
@@ -381,7 +381,7 @@ public class CameraStreamService extends Service {
                                 CameraCaptureSession currentSession = cameraCaptureSessions.get(cameraFacing);
                                 if (currentSession != null) {
                                     currentSession.setRepeatingRequest(previewRequest, null, backgroundHandler);
-                                    Log.d(TAG, "Camera preview session started for facing: " + cameraFacing + " 摄像头预览会话已启动");
+                                    Log.d(TAG, "Camera preview session started for facing: " + cameraFacing + " 服务系统预览会话已启动");
                                 } else {
                                     Log.e(TAG, "CaptureSession is null for facing: " + cameraFacing);
                                 }
@@ -409,21 +409,23 @@ public class CameraStreamService extends Service {
         OutputStream outputStream = outputStreams.get(cameraFacing);
         if (outputStream != null) {
             try {
-                // 获取当前时间戳 (毫秒)
-                long timestamp = System.currentTimeMillis();
+                // 1. 获取帧数据长度
+                int length = frameData.length;
 
-                // 将时间戳转换为字节数组 (8 字节, long long)
-                ByteBuffer buffer = ByteBuffer.allocate(8);
-                buffer.putLong(timestamp);
-                byte[] timestampBytes = buffer.array();
+                // 2. 将长度转换为 4 字节大端字节序的字节数组
+                ByteBuffer lengthBuffer = ByteBuffer.allocate(4);
+                lengthBuffer.order(ByteOrder.BIG_ENDIAN); // 设置为大端字节序
+                lengthBuffer.putInt(length);
+                byte[] lengthBytes = lengthBuffer.array();
 
-                // 先发送时间戳
-                outputStream.write(timestampBytes);
+                // 3. 先发送长度信息
+                outputStream.write(lengthBytes);
 
-                // 再发送帧数据
+                // 4. 再发送帧数据
                 outputStream.write(frameData);
+
                 outputStream.flush();
-                Log.d(TAG, "Frame sent, size: " + frameData.length + " bytes, Camera Facing: " + cameraFacing);
+                Log.d(TAG, "Frame sent, size: " + frameData.length + " bytes, Camera Facing: " + cameraFacing + ", Length bytes sent: " + lengthBytes.length); // 添加日志
             } catch (IOException e) {
                 Log.e(TAG, "Error sending frame for camera facing: " + cameraFacing + ": " + e.getMessage());
                 stopCameraStream();
