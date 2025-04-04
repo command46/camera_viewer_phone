@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+
+    <!--
+        Adaptive Icon Safe Zone: The central 66dp x 66dp area of the 108dp x 108dp canvas.
+        In a 100x100 viewport, this corresponds roughly to the central 61x61 area.
+        Our sun (r=25) and rays (extend to 40) are well within this.
+    -->
+
+    <!-- 1. 太阳射线 -->
+    <group
+        android:pivotX="50"
+        android:pivotY="50"
+        android:translateX="50"
+        android:translateY="50">
+        <path
+            android:pathData="M 0,-30 L 0,-40"
+            android:strokeColor="#FFFFC107"
+            android:strokeWidth="5"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M 0,30 L 0,40"
+            android:strokeColor="#FFFFC107"
+            android:strokeWidth="5"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M -30,0 L -40,0"
+            android:strokeColor="#FFFFC107"
+            android:strokeWidth="5"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M 30,0 L 40,0"
+            android:strokeColor="#FFFFC107"
+            android:strokeWidth="5"
+            android:strokeLineCap="round" />
+        <group android:rotation="45">
+            <path
+                android:pathData="M 0,-30 L 0,-40"
+                android:strokeColor="#FFFFC107"
+                android:strokeWidth="5"
+                android:strokeLineCap="round" />
+            <path
+                android:pathData="M 0,30 L 0,40"
+                android:strokeColor="#FFFFC107"
+                android:strokeWidth="5"
+                android:strokeLineCap="round" />
+            <path
+                android:pathData="M -30,0 L -40,0"
+                android:strokeColor="#FFFFC107"
+                android:strokeWidth="5"
+                android:strokeLineCap="round" />
+            <path
+                android:pathData="M 30,0 L 40,0"
+                android:strokeColor="#FFFFC107"
+                android:strokeWidth="5"
+                android:strokeLineCap="round" />
+        </group>
+    </group>
+
+    <!-- 2. 完整的太阳核心 -->
+    <path
+        android:pathData="M 50, 50 m -25, 0 a 25,25 0 1,1 50,0 a 25,25 0 1,1 -50,0"
+        android:fillColor="#FFFFC107" />
+
+<!--    &lt;!&ndash; 3. 白色的折线图 &ndash;&gt;-->
+<!--    <path-->
+<!--        android:pathData="M 32,58 L 42,52 L 52,57 L 62,54 L 68,58"-->
+<!--        android:strokeColor="#FFFFFF"-->
+<!--        android:strokeWidth="4"-->
+<!--        android:strokeLineCap="round"-->
+<!--        android:strokeLineJoin="round"-->
+<!--        android:fillColor="@android:color/transparent" />-->
+
+</vector>

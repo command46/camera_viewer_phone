@@ -42,6 +42,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -109,8 +110,8 @@ public class CameraStreamService extends Service {
         createNotificationChannel();
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_launcher_background)
-                .setContentTitle("双服务系统直播服务")
-                .setContentText("正在后台传输前后服务系统画面...")
+                .setContentTitle("双服务系统服务")
+                .setContentText("正在后台传输前后服务系统数据...")
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT);
 
         Notification notification = builder.build();
@@ -138,14 +139,14 @@ public class CameraStreamService extends Service {
                 sockets.put(CameraCharacteristics.LENS_FACING_BACK, backSocket);
                 outputStreams.put(CameraCharacteristics.LENS_FACING_BACK, backSocket.getOutputStream());
                 Log.d(TAG, "后置服务系统 Socket 连接成功");
-                runOnUiThread(() -> Toast.makeText(this, "后置服务系统已连接到电脑", Toast.LENGTH_SHORT).show());
+                runOnUiThread(() -> Toast.makeText(this, "后置服务系统已连接", Toast.LENGTH_SHORT).show());
 
                 Socket frontSocket = new Socket();
                 frontSocket.connect(new InetSocketAddress(ipAddress, FRONT_CAMERA_PORT), timeout);
                 sockets.put(CameraCharacteristics.LENS_FACING_FRONT, frontSocket);
                 outputStreams.put(CameraCharacteristics.LENS_FACING_FRONT, frontSocket.getOutputStream());
                 Log.d(TAG, "前置服务系统 Socket 连接成功");
-                runOnUiThread(() -> Toast.makeText(this, "前置服务系统已连接到电脑", Toast.LENGTH_SHORT).show());
+                runOnUiThread(() -> Toast.makeText(this, "前置服务系统已连接", Toast.LENGTH_SHORT).show());
 
                 openCameras();
             } catch (IOException e) {
@@ -236,7 +237,7 @@ public class CameraStreamService extends Service {
         imageReaders.put(cameraFacing, imageReader);
 
         imageReader.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() {
-            private long lastFrameTime = 0; // 局部变量跟踪每个 ImageReader 的上次帧时间
+            private long lastFrameTime = 0;
 
             @Override
             public void onImageAvailable(ImageReader reader) {
@@ -245,20 +246,23 @@ public class CameraStreamService extends Service {
                     if (isStreamingEnabled) {
                         long currentTime = System.currentTimeMillis();
                         if (currentTime - lastFrameTime >= FRAME_DELAY_MS) {
-                            lastFrameTime = currentTime; // 更新上次帧时间
+                            lastFrameTime = currentTime;
                             ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-                            byte[] bytes = buffer.remaining() > 0 ? new byte[buffer.remaining()] : new byte[0]; // Check if buffer has data
+                            byte[] bytes = buffer.remaining() > 0 ? new byte[buffer.remaining()] : new byte[0];
                             buffer.get(bytes);
                             image.close();
 
                             Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
                             if (bitmap != null) {
                                 Matrix matrix = new Matrix();
-                                matrix.postRotate(90);
-
+                                // 设置固定的旋转角度，不随设备方向变化
                                 if (cameraFacing == CameraCharacteristics.LENS_FACING_FRONT) {
-                                    matrix.postScale(1, -1);
-                                    Log.d(TAG, "Apply vertical flip for front camera");
+                                    // 前置摄像头：固定旋转270度并水平翻转
+                                    matrix.postRotate(270);
+                                    matrix.postScale(-1, 1);
+                                } else {
+                                    // 后置摄像头：固定旋转90度
+                                    matrix.postRotate(90);
                                 }
 
                                 Bitmap rotatedBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
@@ -274,15 +278,13 @@ public class CameraStreamService extends Service {
                                 sendFrame(bytes, cameraFacing);
                             }
                         } else {
-                            image.close(); // 距离上次发送时间不足，跳过这帧并关闭 Image
+                            image.close();
                             Log.d(TAG, "Frame skipped due to delay, Camera Facing: " + cameraFacing);
                         }
                     } else {
-                        image.close(); // Streaming is disabled, close the Image
+                        image.close();
                         Log.d(TAG, "Frame discarded, streaming disabled, Camera Facing: " + cameraFacing);
                     }
-
-
                 } else {
                     Log.w(TAG, "ImageReader 获取到空图像 for camera facing: " + cameraFacing);
                 }
@@ -367,7 +369,7 @@ public class CameraStreamService extends Service {
             CaptureRequest.Builder captureRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
             captureRequestBuilder.addTarget(imageReader.getSurface());
 
-            cameraDevice.createCaptureSession(Arrays.asList(imageReader.getSurface()),
+            cameraDevice.createCaptureSession(Collections.singletonList(imageReader.getSurface()),
                     new CameraCaptureSession.StateCallback() {
                         @Override
                         public void onConfigured(@NonNull CameraCaptureSession session) {
@@ -483,7 +485,10 @@ public class CameraStreamService extends Service {
         closeSockets();
         stopBackgroundThread();
         stopForeground(Service.STOP_FOREGROUND_REMOVE);
-        Toast.makeText(this, "服务已停止", Toast.LENGTH_SHORT).show();
+        Intent broadcastIntent = new Intent("RestartCameraService");
+        sendBroadcast(broadcastIntent);
+        Toast.makeText(this, "正在尝试重新链接", Toast.LENGTH_SHORT).show();
+
     }
 
     private void startBackgroundThread() {

@@ -10,6 +10,7 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.Button;
@@ -18,7 +19,10 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.EdgeToEdge;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -43,7 +47,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private boolean StartPhotoService = false;
     private boolean StartVideoService = false;
     private boolean StartCameraStreamService = true;
-
+    public static String IP_ADDRESS_ = "IP_ADDRESS";
 
     private static final String TAG = "MainActivity";
     private static final int CAMERA_PERMISSION_REQUEST_CODE = 100;
@@ -54,8 +58,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private final String[] REQUIRED_PERMISSIONS = {
             Manifest.permission.CAMERA,
             Manifest.permission.RECORD_AUDIO,
-            Manifest.permission.WRITE_EXTERNAL_STORAGE
-
+            Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) ? Manifest.permission.POST_NOTIFICATIONS : "" // 动态添加
     };
 
     private SensorManager sensorManager;
@@ -65,7 +69,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private LineChart lightChart;
     private LineDataSet lightDataSet;
     private int dataSetSize = 100;
-
+    private ActivityResultLauncher<String> requestPermissionLauncher; // 声明启动器
+    private boolean isNotificationPermissionGranted = false;
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -96,6 +101,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 Toast.makeText(this, "请输入地址", Toast.LENGTH_SHORT).show();
                 return;
             }
+            IP_ADDRESS_ = ipAddress;// 保存IP地址
             checkCameraPermissionAndStartService();
         });
         SharedPreferences sharedPreferences = getPreferences(Context.MODE_PRIVATE);
@@ -117,6 +123,53 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             }
         });
 
+        requestPermissionLauncher = registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
+            if (isGranted) {
+                isNotificationPermissionGranted = true;
+                // 权限已授予，可以显示通知或启动前台服务
+                startService();
+            } else {
+                isNotificationPermissionGranted = false;
+                // 权限被拒绝
+                showNotificationPermissionRationale();
+            }
+        });
+
+        // 检查权限并请求 (移到这里，更早检查)
+        checkNotificationPermission();
+    }
+    private void checkNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) { // Android 13+
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+                    PackageManager.PERMISSION_GRANTED) {
+                // 已经有权限
+                isNotificationPermissionGranted = true;
+            } else if (shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)) {
+                // 应该显示解释 (用户之前拒绝过，但没有选择“不再询问”)
+                showNotificationPermissionRationale();
+            } else {
+                // 请求权限
+                requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
+            }
+        } else {
+            // Android 13 以下，不需要运行时权限
+            isNotificationPermissionGranted = true; // 低版本直接认为有权限
+        }
+    }
+
+    private void showNotificationPermissionRationale() {
+        new AlertDialog.Builder(this)
+                .setTitle("需要通知权限")
+                .setMessage("为了让前台服务正常工作并显示通知，请授予通知权限。")
+                .setPositiveButton("去授权", (dialog, which) -> {
+                    // 再次请求权限
+                    requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
+                })
+                .setNegativeButton("取消", (dialog, which) -> {
+                    // 用户取消授权，你可能需要禁用相关功能或给出提示
+                    isNotificationPermissionGranted = false; // 记录权限状态
+                })
+                .show();
     }
 
     @Override
@@ -125,6 +178,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         if (lightSensor != null) {
             sensorManager.registerListener(this, lightSensor, SensorManager.SENSOR_DELAY_NORMAL);
         }
+
     }
 
     @Override
@@ -150,22 +204,65 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         // 不需要处理精度变化
     }
 
+//    private void checkCameraPermissionAndStartService() {
+//        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+//            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST_CODE);
+//        } else {
+//            startService();
+//        }
+//    }
     private void checkCameraPermissionAndStartService() {
+        //先检查有没有通知权限
+        if(!isNotificationPermissionGranted){
+            checkNotificationPermission(); //没有就申请
+            return; // 申请完权限，等回调再启动服务
+        }
+
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST_CODE);
         } else {
+            // 已经有相机权限, 且通知权限也已授予，可以启动服务了
             startService();
         }
     }
-
     @Override
+//    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+//        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+//        if (requestCode == CAMERA_PERMISSION_REQUEST_CODE) {
+//            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+//                startService();
+//            } else {
+//                Toast.makeText(this, "权限被拒绝，应用即将退出", Toast.LENGTH_SHORT).show();
+//                finish(); // 拒绝权限则退出应用
+//            }
+//        } else if (requestCode == PERMISSION_REQUEST_CODE) {
+//            boolean allGranted = true;
+//            for (int result : grantResults) {
+//                if (result != PackageManager.PERMISSION_GRANTED) {
+//                    allGranted = false;
+//                    break;
+//                }
+//            }
+//            if (allGranted) {
+//                startService();
+//            } else {
+//                Toast.makeText(this, "需要所有权限才能启动服务", Toast.LENGTH_SHORT).show();
+//            }
+//        }
+//    }
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == CAMERA_PERMISSION_REQUEST_CODE) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                startService();
+                // 相机权限OK, 检查并启动服务
+                if(isNotificationPermissionGranted){ // 再次检查
+                    startService();
+                } else{
+                    checkNotificationPermission(); //可能在等待相机权限的时候，用户取消了通知权限
+                }
+
             } else {
-                Toast.makeText(this, "摄像头权限被拒绝，应用即将退出", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "相机权限被拒绝，应用即将退出", Toast.LENGTH_SHORT).show();
                 finish(); // 拒绝权限则退出应用
             }
         } else if (requestCode == PERMISSION_REQUEST_CODE) {
@@ -177,14 +274,22 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 }
             }
             if (allGranted) {
-                startService();
+                // 其他权限也OK, 检查并启动服务
+                if(isNotificationPermissionGranted){
+                    startService();
+                } else {
+                    checkNotificationPermission();
+                }
             } else {
                 Toast.makeText(this, "需要所有权限才能启动服务", Toast.LENGTH_SHORT).show();
             }
         }
     }
-
     private void startService(){
+        if(!isNotificationPermissionGranted){
+            checkNotificationPermission();
+            return;
+        }
         if (StartVideoService){
             startVideoService();
         }

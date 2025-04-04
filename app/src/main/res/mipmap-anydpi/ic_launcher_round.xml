@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@drawable/ic_launcher_background" />
-    <foreground android:drawable="@drawable/ic_launcher_foreground" />
-    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
+    <!-- 引用我们创建的白色背景 -->
+    <background android:drawable="@drawable/ic_light_sensor_background" />
+    <!-- 引用我们创建的包含太阳和白色折线的前景 -->
+    <foreground android:drawable="@drawable/ic_light_sensor_foreground" />
+    <!-- 单色图标 (可选, Android 13+): 通常也使用前景 -->
+    <!-- 如果需要，可以创建一个专门的单色版本 -->
+    <monochrome android:drawable="@drawable/ic_light_sensor_foreground" />
 </adaptive-icon>
