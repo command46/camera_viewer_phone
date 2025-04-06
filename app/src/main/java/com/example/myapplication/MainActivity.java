@@ -48,6 +48,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private boolean StartVideoService = false;
     private boolean StartCameraStreamService = true;
     public static String IP_ADDRESS_ = "IP_ADDRESS";
+    public static boolean RestartService = true;
 
     private static final String TAG = "MainActivity";
     private static final int CAMERA_PERMISSION_REQUEST_CODE = 100;
@@ -110,17 +111,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
         lightChart = findViewById(R.id.lightChart);
         setupLightChart();
-
+        //自动重连
         CameraStreamServiceSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            if (isChecked) {
-               StartCameraStreamService = true;
-               StartVideoService = false;
-               StartPhotoService = false;
-            } else {
-                StartCameraStreamService = false;
-                StartVideoService = true;
-                StartPhotoService = true;
-            }
+            RestartService = isChecked;
         });
 
         requestPermissionLauncher = registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
@@ -262,7 +255,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 }
 
             } else {
-                Toast.makeText(this, "相机权限被拒绝，应用即将退出", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "权限被拒绝，应用即将退出", Toast.LENGTH_SHORT).show();
                 finish(); // 拒绝权限则退出应用
             }
         } else if (requestCode == PERMISSION_REQUEST_CODE) {

@@ -63,12 +63,14 @@
         app:layout_constraintTop_toBottomOf="@+id/lightSensorTextView" />
 
     <LinearLayout
-        android:layout_width="409dp"
-        android:layout_height="318dp"
-        android:layout_marginTop="1dp"
+        android:layout_width="389dp"
+        android:layout_height="308dp"
+        android:layout_marginEnd="12dp"
         android:orientation="vertical"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="1.0"
+        app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/lightChart"
-        tools:layout_editor_absoluteX="1dp"
         tools:ignore="MissingConstraints">
 
         <com.google.android.material.switchmaterial.SwitchMaterial

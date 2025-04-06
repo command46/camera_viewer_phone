@@ -46,6 +46,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -153,10 +154,12 @@ public class CameraStreamService extends Service {
         Log.w(TAG, "服务 onDestroy");
         shutdownAndCleanup();
         Log.i(TAG, "服务已停止。");
-        // Optional: 可以在这里发送广播尝试重启服务，如果需要的话
-        // Intent broadcastIntent = new Intent("RestartCameraService");
-        // sendBroadcast(broadcastIntent);
-        // showToast("正在尝试重新链接");
+        // Optional: 可以在这里发送广播尝试重启服务
+        if (MainActivity.RestartService) {
+            Intent broadcastIntent = new Intent("RestartCameraService");
+            sendBroadcast(broadcastIntent);
+            showToast("正在尝试重新链接");
+        }
     }
 
     // --- Core Logic Methods ---
@@ -319,9 +322,7 @@ public class CameraStreamService extends Service {
 
         // 选择预览尺寸
         Size targetSize = new Size(640, 480); // 可以调整目标尺寸
-        Size selectedSize = Collections.min(Arrays.asList(outputSizes), (s1, s2) ->
-                Long.compare(Math.abs(s1.getWidth() * s1.getHeight() - targetSize.getWidth() * targetSize.getHeight()),
-                        Math.abs(s2.getWidth() * s2.getHeight() - targetSize.getWidth() * targetSize.getHeight()))
+        Size selectedSize = Collections.min(Arrays.asList(outputSizes), Comparator.comparingLong(s -> Math.abs(s.getWidth() * s.getHeight() - targetSize.getWidth() * targetSize.getHeight()))
         );
         previewSizes.put(cameraFacing, selectedSize); // 存储该相机的尺寸
 
@@ -332,14 +333,13 @@ public class CameraStreamService extends Service {
         imageReaders.put(cameraFacing, imageReader);
 
         imageReader.setOnImageAvailableListener(reader -> {
-            // 使用 final 变量捕获当前 facing 和 size
-            final int currentFacing = cameraFacing;
-            final Size currentSize = previewSizes.get(currentFacing);
+            //捕获当前 facing 和 size
+            final Size currentSize = previewSizes.get(cameraFacing);
             if (currentSize == null) {
-                Log.e(TAG, "无法获取 " + getFacingString(currentFacing) + " 的预览尺寸！");
+                Log.e(TAG, "无法获取 " + getFacingString(cameraFacing) + " 的预览尺寸！");
                 return;
             }
-            processImageAvailable(reader, currentFacing, currentSize);
+            processImageAvailable(reader, cameraFacing, currentSize);
         }, backgroundHandler);
 
 
