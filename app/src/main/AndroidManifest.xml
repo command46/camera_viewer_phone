@@ -19,6 +19,23 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- 网络权限：允许应用创建网络套接字 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 相机权限：允许应用访问相机设备 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- 前台服务权限：允许应用运行前台服务 (Android 9+) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- 通知权限：允许应用发布通知 (Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- 相机类型的前台服务权限 (Android 14+, 如果 targetSdk >= 34) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <!-- 开机启动权限：允许应用在设备启动完成后接收广播 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- 声明应用需要相机硬件 -->
+    <uses-feature android:name="android.hardware.camera.any" android:required="true" />
+    <!-- 声明应用可以使用自动对焦功能（非必需） -->
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"

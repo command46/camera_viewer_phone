@@ -26,7 +26,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:inputType="textUri"
-            android:maxLines="1" />  <!-- *** 检查这一行的末尾是否为 '/>' *** -->
+            android:maxLines="1" />
 
     </com.google.android.material.textfield.TextInputLayout>
 
@@ -83,7 +83,7 @@
     </androidx.cardview.widget.CardView>
 
 
-    <!-- 设置区域 (直接放置 Switch) -->
+    <!-- 设置区域 (自动重启开关) -->
     <com.google.android.material.switchmaterial.SwitchMaterial
         android:id="@+id/CameraStreamServiceSwitch"
         android:layout_width="0dp"
