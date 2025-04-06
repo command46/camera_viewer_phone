@@ -1,7 +1,7 @@
-// --- START OF FILE MainActivity.java (包含失败弹窗逻辑) ---
 package com.example.myapplication;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.content.BroadcastReceiver; // 引入 BroadcastReceiver
 import android.content.Context;
 import android.content.Intent;
@@ -86,17 +86,14 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     // 图表相关
     private LineChart lightChart;
-    private LineDataSet lightDataSet;
-    private int dataSetSize = 100; // 图表显示的数据点数量
 
     // 权限请求启动器
     private ActivityResultLauncher<String> requestNotificationPermissionLauncher;
     private boolean isNotificationPermissionGranted = false; // 跟踪通知权限状态
 
-    // --- 新增：用于接收服务重试失败的广播 ---
+    //用于接收服务重试失败的广播
     private BroadcastReceiver retryFailureReceiver;
     private IntentFilter retryFailureIntentFilter;
-    // --- 结束新增 ---
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -230,7 +227,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         }
     }
 
-
+    @SuppressLint({"UnspecifiedRegisterReceiverFlag", "WrongConstant"}) // 添加注解抑制警告
     @Override
     protected void onResume() {
         super.onResume();
@@ -501,22 +498,22 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
      * 启动 CameraStreamService。
      */
     private void startCameraStreamService() {
-        Log.d(TAG, "启动 CameraStreamService...");
+        Log.d(TAG, "启动 CameraStreamService (手动)..."); // 标识为手动启动
         Intent serviceIntent = new Intent(this, CameraStreamService.class);
         // 将验证过的 IP 地址传递给服务
         serviceIntent.putExtra("IP_ADDRESS", this.ipAddress);
+        // --- 新增：添加手动启动标志 ---
+        serviceIntent.putExtra("MANUAL_START", true);
+        // --- 结束新增 ---
         try {
-            // Android 8.0 (Oreo) 及以上版本需要使用 startForegroundService
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 startForegroundService(serviceIntent);
             } else {
-                // 旧版本使用 startService
                 startService(serviceIntent);
             }
-            Log.i(TAG, "CameraStreamService 启动命令已发送。");
+            Log.i(TAG, "CameraStreamService 启动命令已发送 (手动)。");
             Toast.makeText(this,"相机流服务已启动", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
-            // 捕获启动服务时可能出现的异常（例如权限问题、服务未找到等）
             Log.e(TAG, "启动 CameraStreamService 失败", e);
             Toast.makeText(this,"启动相机流服务失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
@@ -634,7 +631,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         lightChart.getAxisRight().setEnabled(false);
 
         // 创建数据集并添加到图表
-        lightDataSet = createLightSet();
+        LineDataSet lightDataSet = createLightSet();
         LineData data = new LineData(lightDataSet);
         lightChart.setData(data);
         lightChart.invalidate(); // 初始绘制
@@ -652,6 +649,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             }
 
             // 控制数据点数量，移除旧数据
+            // 图表显示的数据点数量
+            int dataSetSize = 100;
             if (set.getEntryCount() >= dataSetSize) {
                 // 移除第一个点 (最旧的点)
                 set.removeFirst();
