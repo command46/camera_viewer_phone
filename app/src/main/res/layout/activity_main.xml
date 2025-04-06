@@ -7,6 +7,7 @@
     android:layout_height="match_parent"
     tools:context=".MainActivity">
 
+    <!-- IP 地址输入 -->
     <com.google.android.material.textfield.TextInputLayout
         android:id="@+id/ipAddressTextInputLayout"
         style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
@@ -15,7 +16,7 @@
         android:layout_marginStart="16dp"
         android:layout_marginTop="16dp"
         android:layout_marginEnd="16dp"
-        android:hint="IP Address"
+        android:hint="服务器 IP 地址"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent">
@@ -24,63 +25,81 @@
             android:id="@+id/ipAddressEditText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:inputType="text"
-            android:maxLines="1" />
-
+            android:inputType="textUri"
+            android:maxLines="1" />  <!-- *** 检查这一行的末尾是否为 '/>' *** -->
 
     </com.google.android.material.textfield.TextInputLayout>
 
+    <!-- 连接按钮 -->
     <com.google.android.material.button.MaterialButton
         android:id="@+id/connectButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
-        android:text="Connect"
+        android:text="连接"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/ipAddressTextInputLayout" />
 
-    <TextView
-        android:id="@+id/lightSensorTextView"
-        android:layout_width="wrap_content"
+    <!-- 传感器信息卡片 -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/sensorCardView"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="32dp"
-        android:text="Light Sensor: -- lux"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="24dp"
+        android:layout_marginEnd="16dp"
+        app:cardCornerRadius="8dp"
+        app:cardElevation="4dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/connectButton">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <!-- 光线传感器读数 -->
+            <TextView
+                android:id="@+id/lightSensorTextView"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginBottom="12dp"
+                android:text="光线传感器: -- lux"
+                android:textAppearance="@style/TextAppearance.MaterialComponents.Body1"
+                android:textSize="16sp" />
+
+            <!-- 光线图表 -->
+            <com.github.mikephil.charting.charts.LineChart
+                android:id="@+id/lightChart"
+                android:layout_width="match_parent"
+                android:layout_height="200dp" />
+
+        </LinearLayout>
+
+    </androidx.cardview.widget.CardView>
+
+
+    <!-- 设置区域 (直接放置 Switch) -->
+    <com.google.android.material.switchmaterial.SwitchMaterial
+        android:id="@+id/CameraStreamServiceSwitch"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="24dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="16dp"
+        android:checked="true"
+        android:paddingVertical="12dp"
+        android:text="服务结束后自动重启连接"
         android:textSize="16sp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/connectButton" />
-
-    <com.github.mikephil.charting.charts.LineChart
-        android:id="@+id/lightChart"
-        android:layout_width="0dp"
-        android:layout_height="200dp"
-        android:layout_marginStart="16dp"
-        android:layout_marginTop="16dp"
-        android:layout_marginEnd="16dp"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/lightSensorTextView" />
-
-    <LinearLayout
-        android:layout_width="389dp"
-        android:layout_height="308dp"
-        android:layout_marginEnd="12dp"
-        android:orientation="vertical"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="1.0"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/lightChart"
-        tools:ignore="MissingConstraints">
-
-        <com.google.android.material.switchmaterial.SwitchMaterial
-            android:id="@+id/CameraStreamServiceSwitch"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:checked="true"
-            android:text="CSS" />
-
-    </LinearLayout>
+        app:layout_constraintTop_toBottomOf="@+id/sensorCardView"
+        app:layout_constraintVertical_bias="0.0" />
 
 
 </androidx.constraintlayout.widget.ConstraintLayout>

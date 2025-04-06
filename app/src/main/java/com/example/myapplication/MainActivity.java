@@ -12,7 +12,9 @@ import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.text.TextUtils; // 引入 TextUtils 用于检查空字符串
 import android.util.Log;
+import android.util.Patterns; // 引入 Patterns 用于 IP 地址校验
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
@@ -30,7 +32,6 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
-
 import com.github.mikephil.charting.charts.LineChart;
 import com.github.mikephil.charting.components.XAxis;
 import com.github.mikephil.charting.components.YAxis;
@@ -44,34 +45,52 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity implements SensorEventListener {
-    private boolean StartPhotoService = false;
-    private boolean StartVideoService = false;
-    private boolean StartCameraStreamService = true;
-    public static String IP_ADDRESS_ = "IP_ADDRESS";
-    public static boolean RestartService = true;
+    // 不再需要这些静态变量
+    // public static String IP_ADDRESS_ = "IP_ADDRESS";
+    // public static boolean RestartService = true;
+
+    // SharedPreferences 相关常量 (与 Service 和 Receiver 保持一致)
+    private static final String PREFS_NAME = "CameraServicePrefs";
+    private static final String KEY_IP_ADDRESS = "last_ip_address";
+    private static final String KEY_RESTART_SERVICE = "restart_service_flag";
 
     private static final String TAG = "MainActivity";
     private static final int CAMERA_PERMISSION_REQUEST_CODE = 100;
-    private static final int PERMISSION_REQUEST_CODE = 1001;
+    private static final int PERMISSION_REQUEST_CODE = 1001; // 用于其他权限组（如果需要）
+
+    // 服务启动标志 (根据需要保留或移除)
+    private boolean StartPhotoService = false;
+    private boolean StartVideoService = false;
+    private boolean StartCameraStreamService = true; // 默认启动 CameraStreamService
+
     private Button connectButton;
     private EditText ipAddressEditText;
-    private String ipAddress;
+    private String ipAddress; // 用于存储当前 Activity 中使用的 IP 地址
+    private SharedPreferences sharedPreferences; // SharedPreferences 实例
+    private SwitchMaterial CameraStreamServiceSwitch; // 重启开关
+
+    // 需要的权限列表
     private final String[] REQUIRED_PERMISSIONS = {
             Manifest.permission.CAMERA,
-            Manifest.permission.RECORD_AUDIO,
-            Manifest.permission.WRITE_EXTERNAL_STORAGE,
-            (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) ? Manifest.permission.POST_NOTIFICATIONS : "" // 动态添加
+            // Manifest.permission.RECORD_AUDIO, // 如果 VideoService 需要录音
+            // Manifest.permission.WRITE_EXTERNAL_STORAGE, // 如果需要写文件（Android 10 以下）
+            // Android 13+ 通知权限是动态添加的
     };
 
+    // 传感器相关
     private SensorManager sensorManager;
     private Sensor lightSensor;
     private TextView lightSensorTextView;
-    private SwitchMaterial CameraStreamServiceSwitch;
+
+    // 图表相关
     private LineChart lightChart;
     private LineDataSet lightDataSet;
-    private int dataSetSize = 100;
-    private ActivityResultLauncher<String> requestPermissionLauncher; // 声明启动器
-    private boolean isNotificationPermissionGranted = false;
+    private int dataSetSize = 100; // 图表显示的数据点数量
+
+    // 权限请求启动器
+    private ActivityResultLauncher<String> requestNotificationPermissionLauncher;
+    private boolean isNotificationPermissionGranted = false; // 跟踪通知权限状态
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -83,87 +102,171 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             return insets;
         });
 
+        // 初始化 SharedPreferences
+        sharedPreferences = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+
         // 初始化传感器
         sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
         lightSensor = sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT);
         lightSensorTextView = findViewById(R.id.lightSensorTextView);
-
-
         if (lightSensor == null) {
-            lightSensorTextView.setText("Light Sensor: Not Available");
+            lightSensorTextView.setText("光线传感器: 不可用");
         }
 
+        // 初始化视图控件
         CameraStreamServiceSwitch = findViewById(R.id.CameraStreamServiceSwitch);
         connectButton = findViewById(R.id.connectButton);
         ipAddressEditText = findViewById(R.id.ipAddressEditText);
+
+        // 加载保存的设置
+        loadSavedPreferences();
+
+        // 设置连接按钮点击事件
         connectButton.setOnClickListener(v -> {
-            ipAddress = ipAddressEditText.getText().toString().trim();
-            if (ipAddress.isEmpty()) {
-                Toast.makeText(this, "请输入地址", Toast.LENGTH_SHORT).show();
+            // 1. 获取当前输入
+            String currentIp = ipAddressEditText.getText().toString().trim();
+            boolean restartEnabled = CameraStreamServiceSwitch.isChecked();
+
+            // 2. 验证 IP 地址
+            if (!isValidIpAddress(currentIp)) { // 使用 IP 验证函数
+                Toast.makeText(this, "请输入有效的 IP 地址", Toast.LENGTH_SHORT).show();
                 return;
             }
-            IP_ADDRESS_ = ipAddress;// 保存IP地址
-            checkCameraPermissionAndStartService();
-        });
-        SharedPreferences sharedPreferences = getPreferences(Context.MODE_PRIVATE);
-        String savedIpAddress = sharedPreferences.getString("IP_ADDRESS", "");
-        ipAddressEditText.setText(savedIpAddress);
 
+            // 3. 保存有效的 IP 和重启设置到 SharedPreferences
+            this.ipAddress = currentIp; // 更新成员变量，供 startService 使用
+            savePreferences(currentIp, restartEnabled);
+
+            // 4. 检查权限并尝试启动服务
+            checkPermissionsAndStartService();
+        });
+
+        // 设置重启开关状态变化监听器
+        CameraStreamServiceSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            // 当开关状态改变时，立即保存新的状态
+            saveRestartPreference(isChecked);
+        });
+
+        // 初始化图表
         lightChart = findViewById(R.id.lightChart);
         setupLightChart();
-        //自动重连
-        CameraStreamServiceSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            RestartService = isChecked;
-        });
 
-        requestPermissionLauncher = registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
+        // 初始化通知权限请求启动器
+        requestNotificationPermissionLauncher = registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
             if (isGranted) {
                 isNotificationPermissionGranted = true;
-                // 权限已授予，可以显示通知或启动前台服务
-                startService();
+                Log.i(TAG, "通知权限已授予。");
+                // 权限授予后，可以再次尝试启动服务（如果是因为缺少此权限而中断的话）
+                // 这里可以调用 checkPermissionsAndStartService()，它会检查其他权限
+                checkPermissionsAndStartService();
             } else {
                 isNotificationPermissionGranted = false;
-                // 权限被拒绝
-                showNotificationPermissionRationale();
+                Log.w(TAG, "通知权限被拒绝。");
+                // 权限被拒绝，可以显示提示
+                showNotificationPermissionRationale(); // 再次解释原因或提示功能受限
+                Toast.makeText(this,"缺少通知权限，前台服务可能无法正常启动或显示通知", Toast.LENGTH_LONG).show();
             }
         });
 
-        // 检查权限并请求 (移到这里，更早检查)
+        // 检查通知权限 (如果需要，其他权限检查在点击连接时进行)
         checkNotificationPermission();
     }
+
+    /**
+     * 从 SharedPreferences 加载保存的 IP 地址和重启设置
+     */
+    private void loadSavedPreferences() {
+        String savedIpAddress = sharedPreferences.getString(KEY_IP_ADDRESS, ""); // 默认空字符串
+        boolean savedRestartPref = sharedPreferences.getBoolean(KEY_RESTART_SERVICE, true); // 默认开启重启
+
+        ipAddressEditText.setText(savedIpAddress);
+        CameraStreamServiceSwitch.setChecked(savedRestartPref);
+
+        Log.d(TAG, "已加载保存的设置: IP=" + savedIpAddress + ", Restart=" + savedRestartPref);
+    }
+
+    /**
+     * 保存 IP 地址和重启设置到 SharedPreferences
+     */
+    private void savePreferences(String ip, boolean restartEnabled) {
+        SharedPreferences.Editor editor = sharedPreferences.edit();
+        editor.putString(KEY_IP_ADDRESS, ip);
+        editor.putBoolean(KEY_RESTART_SERVICE, restartEnabled);
+        editor.apply(); // 异步保存
+        Log.i(TAG, "已保存设置: IP=" + ip + ", Restart=" + restartEnabled);
+    }
+
+    /**
+     * 单独保存重启设置到 SharedPreferences
+     */
+    private void saveRestartPreference(boolean restartEnabled) {
+        sharedPreferences.edit().putBoolean(KEY_RESTART_SERVICE, restartEnabled).apply();
+        Log.i(TAG, "已更新重启设置: " + restartEnabled);
+    }
+
+    /**
+     * 检查 IP 地址格式是否有效
+     * @param ip 要检查的 IP 地址字符串
+     * @return 如果格式有效则返回 true，否则返回 false
+     */
+    private boolean isValidIpAddress(String ip) {
+        return !TextUtils.isEmpty(ip) && Patterns.IP_ADDRESS.matcher(ip).matches();
+    }
+
+
+    /**
+     * 检查 Android 13+ 的通知权限
+     */
     private void checkNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) { // Android 13+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) { // Android 13 (API 33)
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
                     PackageManager.PERMISSION_GRANTED) {
                 // 已经有权限
                 isNotificationPermissionGranted = true;
-            } else if (shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)) {
-                // 应该显示解释 (用户之前拒绝过，但没有选择“不再询问”)
-                showNotificationPermissionRationale();
+                Log.d(TAG,"通知权限已授予 (Android 13+)。");
             } else {
-                // 请求权限
-                requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
+                // 没有权限，需要请求 (在需要时请求，例如点击连接按钮时)
+                isNotificationPermissionGranted = false;
+                Log.d(TAG,"通知权限未授予 (Android 13+)，将在需要时请求。");
+                // 可以在这里请求，或者在点击连接时请求
+                // requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
             }
         } else {
-            // Android 13 以下，不需要运行时权限
-            isNotificationPermissionGranted = true; // 低版本直接认为有权限
+            // Android 13 以下，不需要此运行时权限
+            isNotificationPermissionGranted = true;
+            Log.d(TAG,"低于 Android 13，无需运行时通知权限。");
         }
     }
 
+    /**
+     * 显示请求通知权限的理由对话框
+     */
     private void showNotificationPermissionRationale() {
-        new AlertDialog.Builder(this)
-                .setTitle("需要通知权限")
-                .setMessage("为了让前台服务正常工作并显示通知，请授予通知权限。")
-                .setPositiveButton("去授权", (dialog, which) -> {
-                    // 再次请求权限
-                    requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
-                })
-                .setNegativeButton("取消", (dialog, which) -> {
-                    // 用户取消授权，你可能需要禁用相关功能或给出提示
-                    isNotificationPermissionGranted = false; // 记录权限状态
-                })
-                .show();
+        // 只有在 Android 13+ 且应该显示理由时才显示
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.POST_NOTIFICATIONS)) {
+            new AlertDialog.Builder(this)
+                    .setTitle("需要通知权限")
+                    .setMessage("应用需要在后台运行时显示通知，以确保服务持续运行。请授予通知权限。")
+                    .setPositiveButton("去授权", (dialog, which) -> {
+                        // 再次请求权限
+                        requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
+                    })
+                    .setNegativeButton("取消", (dialog, which) -> {
+                        isNotificationPermissionGranted = false;
+                        Toast.makeText(this, "未授予通知权限，服务可能无法正常运行", Toast.LENGTH_SHORT).show();
+                    })
+                    .show();
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !isNotificationPermissionGranted) {
+            // 用户可能选择了 "不再询问"，这里可以提示用户去设置中开启
+            Toast.makeText(this, "请在应用设置中手动开启通知权限", Toast.LENGTH_LONG).show();
+            // 可以引导用户去设置界面：
+            // Intent intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+            // intent.putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+            // startActivity(intent);
+        }
     }
+
 
     @Override
     protected void onResume() {
@@ -171,7 +274,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         if (lightSensor != null) {
             sensorManager.registerListener(this, lightSensor, SensorManager.SENSOR_DELAY_NORMAL);
         }
-
+        // 可以在 onResume 时再次检查通知权限，以防用户在设置中更改了它
+        checkNotificationPermission();
     }
 
     @Override
@@ -186,103 +290,98 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     public void onSensorChanged(SensorEvent event) {
         if (event.sensor.getType() == Sensor.TYPE_LIGHT) {
             float lightLevel = event.values[0];
-            lightSensorTextView.setText(String.format("Light Sensor: %.1f lux", lightLevel));
-
+            lightSensorTextView.setText(String.format("光线传感器: %.1f lux", lightLevel));
             addLightEntry(lightLevel);
         }
     }
 
     @Override
     public void onAccuracyChanged(Sensor sensor, int accuracy) {
-        // 不需要处理精度变化
+        // 通常不需要处理
     }
 
-//    private void checkCameraPermissionAndStartService() {
-//        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-//            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST_CODE);
-//        } else {
-//            startService();
-//        }
-//    }
-    private void checkCameraPermissionAndStartService() {
-        //先检查有没有通知权限
-        if(!isNotificationPermissionGranted){
-            checkNotificationPermission(); //没有就申请
-            return; // 申请完权限，等回调再启动服务
+    /**
+     * 统一的权限检查和启动服务入口
+     */
+    private void checkPermissionsAndStartService() {
+        // 1. 检查通知权限 (Android 13+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !isNotificationPermissionGranted) {
+            Log.d(TAG, "请求通知权限...");
+            requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
+            // 等待权限结果回调，在回调中再检查相机权限
+            return;
         }
 
+        // 2. 通知权限已满足 (或不需要)，检查相机权限
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            Log.d(TAG, "请求相机权限...");
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST_CODE);
-        } else {
-            // 已经有相机权限, 且通知权限也已授予，可以启动服务了
-            startService();
+            // 等待权限结果回调
+            return;
         }
+
+        // 3. 如果需要其他权限 (如录音、存储)，在这里检查或在 checkAndRequestPermissions() 中统一检查
+        // if (!checkAndRequestPermissions()) { // 如果使用了 REQUIRED_PERMISSIONS
+        //    return; // 等待权限结果
+        // }
+
+        // --- 所有必要权限都已授予 ---
+        Log.i(TAG, "所有必要权限已授予，准备启动服务...");
+        startSelectedServices(); // 调用启动服务的方法
     }
+
+
     @Override
-//    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-//        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-//        if (requestCode == CAMERA_PERMISSION_REQUEST_CODE) {
-//            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-//                startService();
-//            } else {
-//                Toast.makeText(this, "权限被拒绝，应用即将退出", Toast.LENGTH_SHORT).show();
-//                finish(); // 拒绝权限则退出应用
-//            }
-//        } else if (requestCode == PERMISSION_REQUEST_CODE) {
-//            boolean allGranted = true;
-//            for (int result : grantResults) {
-//                if (result != PackageManager.PERMISSION_GRANTED) {
-//                    allGranted = false;
-//                    break;
-//                }
-//            }
-//            if (allGranted) {
-//                startService();
-//            } else {
-//                Toast.makeText(this, "需要所有权限才能启动服务", Toast.LENGTH_SHORT).show();
-//            }
-//        }
-//    }
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == CAMERA_PERMISSION_REQUEST_CODE) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                // 相机权限OK, 检查并启动服务
-                if(isNotificationPermissionGranted){ // 再次检查
-                    startService();
-                } else{
-                    checkNotificationPermission(); //可能在等待相机权限的时候，用户取消了通知权限
-                }
-
-            } else {
-                Toast.makeText(this, "权限被拒绝，应用即将退出", Toast.LENGTH_SHORT).show();
-                finish(); // 拒绝权限则退出应用
-            }
-        } else if (requestCode == PERMISSION_REQUEST_CODE) {
-            boolean allGranted = true;
+        boolean allGranted = true;
+        if (grantResults.length == 0) {
+            allGranted = false; // 没有结果，认为失败
+        } else {
             for (int result : grantResults) {
                 if (result != PackageManager.PERMISSION_GRANTED) {
                     allGranted = false;
                     break;
                 }
             }
+        }
+
+        if (requestCode == CAMERA_PERMISSION_REQUEST_CODE) {
             if (allGranted) {
-                // 其他权限也OK, 检查并启动服务
-                if(isNotificationPermissionGranted){
-                    startService();
-                } else {
-                    checkNotificationPermission();
-                }
+                Log.i(TAG, "相机权限已授予。");
+                // 相机权限OK，再次调用检查流程，它会检查通知权限（理论上已通过）并启动服务
+                checkPermissionsAndStartService();
             } else {
-                Toast.makeText(this, "需要所有权限才能启动服务", Toast.LENGTH_SHORT).show();
+                Log.e(TAG, "相机权限被拒绝！");
+                Toast.makeText(this, "必须授予相机权限才能使用此功能", Toast.LENGTH_SHORT).show();
+                // 可以选择退出或禁用相关功能
+                // finish();
+            }
+        } else if (requestCode == PERMISSION_REQUEST_CODE) { // 处理其他权限组（如果使用）
+            if (allGranted) {
+                Log.i(TAG, "其他权限组已授予。");
+                checkPermissionsAndStartService(); // 同样，重新检查并启动
+            } else {
+                Log.e(TAG, "其他权限组被拒绝！");
+                Toast.makeText(this, "需要所有请求的权限才能启动服务", Toast.LENGTH_SHORT).show();
             }
         }
     }
-    private void startService(){
-        if(!isNotificationPermissionGranted){
-            checkNotificationPermission();
+
+    /**
+     * 启动选中的服务
+     */
+    private void startSelectedServices(){
+        // 确保 ipAddress 是最新的
+        this.ipAddress = ipAddressEditText.getText().toString().trim();
+        if (!isValidIpAddress(this.ipAddress)){
+            Toast.makeText(this, "启动服务前发现无效 IP 地址", Toast.LENGTH_SHORT).show();
             return;
         }
+
+        Log.d(TAG,"准备启动服务，使用 IP: " + this.ipAddress);
+
+        // 根据标志启动不同的服务
         if (StartVideoService){
             startVideoService();
         }
@@ -294,198 +393,180 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         }
     }
 
+    /**
+     * 启动 CameraStreamService
+     */
     private void startCameraStreamService() {
-        Log.d(TAG, "Starting CameraStreamService with IP: " + ipAddress);
+        Log.d(TAG, "启动 CameraStreamService...");
         Intent serviceIntent = new Intent(this, CameraStreamService.class);
-        serviceIntent.putExtra("IP_ADDRESS", ipAddress);
-        startForegroundService(serviceIntent); // 使用 startForegroundService 以便在后台稳定运行
-        Log.d(TAG, "CameraStreamService started");
-    }
-    private void startVideoService() {
-        if (checkAndRequestPermissions()) {
-            Log.d(TAG, "Starting VideoService with IP: " + ipAddress);
-            Intent serviceIntent = new Intent(this, VideoService.class);
-            serviceIntent.putExtra("IP_ADDRESS", ipAddress);
-            startForegroundService(serviceIntent);
-            Log.d(TAG, "VideoService started");
+        serviceIntent.putExtra("IP_ADDRESS", this.ipAddress); // 使用成员变量 ipAddress
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent);
+            } else {
+                startService(serviceIntent);
+            }
+            Log.i(TAG, "CameraStreamService 启动命令已发送。");
+            Toast.makeText(this,"相机流服务已启动", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Log.e(TAG, "启动 CameraStreamService 失败", e);
+            Toast.makeText(this,"启动相机流服务失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
-    }
-    private void startPhotoService() { // 启动 PhotoService
-        Log.d(TAG, "Starting PhotoService with IP: " + ipAddress);
-        Intent serviceIntent = new Intent(this, PhotoService.class); // 启动 PhotoService
-        serviceIntent.putExtra("IP_ADDRESS", ipAddress);
-        startForegroundService(serviceIntent); // 使用 startForegroundService
-        Log.d(TAG, "PhotoService started");
     }
 
     /**
-     * 检查并请求所需权限
-     * 此方法用于检查应用是否已经获得了所有REQUIRED_PERMISSIONS中列出的权限
-     * 如果有权限尚未授予，则将这些权限添加到permissionsNeeded列表中，并请求这些权限
-     *
-     * @return boolean 表示是否已经获得了所有所需的权限如果获得了所有权限，则返回true；否则，返回false
+     * 启动 VideoService (示例，如果需要)
+     */
+    private void startVideoService() {
+        // if (checkAndRequestPermissions()) { // 确保 VideoService 需要的权限已授予
+        Log.d(TAG, "启动 VideoService...");
+        Intent serviceIntent = new Intent(this, VideoService.class); // 假设存在 VideoService
+        serviceIntent.putExtra("IP_ADDRESS", this.ipAddress);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent);
+            } else {
+                startService(serviceIntent);
+            }
+            Log.i(TAG, "VideoService 启动命令已发送。");
+        } catch (Exception e) {
+            Log.e(TAG, "启动 VideoService 失败", e);
+            Toast.makeText(this,"启动视频服务失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+        // }
+    }
+
+    /**
+     * 启动 PhotoService (示例，如果需要)
+     */
+    private void startPhotoService() {
+        Log.d(TAG, "启动 PhotoService...");
+        Intent serviceIntent = new Intent(this, PhotoService.class); // 假设存在 PhotoService
+        serviceIntent.putExtra("IP_ADDRESS", this.ipAddress);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent);
+            } else {
+                startService(serviceIntent);
+            }
+            Log.i(TAG, "PhotoService 启动命令已发送。");
+        } catch (Exception e) {
+            Log.e(TAG, "启动 PhotoService 失败", e);
+            Toast.makeText(this,"启动照片服务失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /**
+     * 检查并请求一组权限 (如果使用了 REQUIRED_PERMISSIONS)
+     * @return boolean 是否所有权限都已授予
      */
     private boolean checkAndRequestPermissions() {
-        // 初始化一个列表，用于存储需要请求的权限
         List<String> permissionsNeeded = new ArrayList<>();
+        List<String> finalPermissions = new ArrayList<>(List.of(REQUIRED_PERMISSIONS));
 
-        // 遍历所需的权限列表，检查每个权限是否已经授予
-        for (String permission : REQUIRED_PERMISSIONS) {
-            // 如果权限尚未授予，则将其添加到需要请求的权限列表中
-            if (ActivityCompat.checkSelfPermission(this, permission) !=
-                PackageManager.PERMISSION_GRANTED) {
+        // 动态添加通知权限 (如果目标 SDK >= 33)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            finalPermissions.add(Manifest.permission.POST_NOTIFICATIONS);
+        }
+
+        for (String permission : finalPermissions) {
+            // 过滤掉空字符串（用于兼容旧版通知权限写法）
+            if (!TextUtils.isEmpty(permission) && ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
                 permissionsNeeded.add(permission);
             }
         }
 
-        // 如果有权限需要请求，则请求这些权限，并返回false表示权限尚未完全授予
         if (!permissionsNeeded.isEmpty()) {
-            ActivityCompat.requestPermissions(this,
-                permissionsNeeded.toArray(new String[0]),
-                PERMISSION_REQUEST_CODE);
-            return false;
+            Log.d(TAG, "请求权限组: " + permissionsNeeded);
+            ActivityCompat.requestPermissions(this, permissionsNeeded.toArray(new String[0]), PERMISSION_REQUEST_CODE);
+            return false; // 需要等待结果
         }
-        // 如果所有权限都已经授予，返回true表示权限检查通过
-        return true;
+        Log.d(TAG, "所有权限组权限已满足。");
+        return true; // 所有权限已满足
     }
+
     @Override
     protected void onStop() {
         super.onStop();
-        // 保存当前输入的 IP 地址到 SharedPreferences
-        SharedPreferences sharedPreferences = getPreferences(Context.MODE_PRIVATE);
-        SharedPreferences.Editor editor = sharedPreferences.edit();
-        editor.putString("IP_ADDRESS", ipAddressEditText.getText().toString());
-        editor.apply();
+        // onStop 时可以保存当前 EditText 的内容，但不应覆盖由“连接”按钮确认的 IP
+        // SharedPreferences.Editor editor = sharedPreferences.edit();
+        // editor.putString("last_edited_ip", ipAddressEditText.getText().toString()); // 可以用不同的键名保存
+        // editor.apply();
+        // 这里选择不保存，让用户明确点击连接时才保存最终使用的 IP
     }
 
-    /**
-     * 初始化光线图表的设置
-     * 此方法配置图表的基本属性，如背景色、触摸和拖动功能等
-     * 同时，它也设置了X轴和Y轴的属性，以适应光线数据的展示需求
-     */
+
+    // --- 图表相关方法 (setupLightChart, addLightEntry, createLightSet) ---
+    // 这些方法保持不变，因为它们与 IP/服务逻辑无关
     private void setupLightChart() {
-        // 禁用图表描述，以简化界面
         lightChart.getDescription().setEnabled(false);
-        // 禁用触摸事件，因为光线数据不需要用户交互
         lightChart.setTouchEnabled(false);
-        // 禁用拖动功能，保持图表稳定性
         lightChart.setDragEnabled(false);
-        // 禁用缩放功能，确保图表按原始比例显示
         lightChart.setScaleEnabled(false);
-        // 不绘制网格背景，以简化图表视觉效果
         lightChart.setDrawGridBackground(false);
-        // 禁用双指缩放，保持图表稳定性
         lightChart.setPinchZoom(false);
-        // 设置背景色为白色，以提高可读性
         lightChart.setBackgroundColor(Color.WHITE);
-        // 设置最大高亮距离为300，限制用户交互范围
         lightChart.setMaxHighlightDistance(300);
 
-        // 配置X轴属性
         XAxis x = lightChart.getXAxis();
-        // 禁用X轴，因为光线数据的展示不需要X轴刻度
         x.setEnabled(false);
 
-        // 配置左侧Y轴属性
         YAxis y = lightChart.getAxisLeft();
-        // 设置Y轴标签数量为6，自动调整刻度间隔
         y.setLabelCount(6, false);
-        // 设置Y轴标签颜色为黑色，以提高对比度和可读性
         y.setTextColor(Color.BLACK);
-        // 将Y轴标签位置设置在图表内部，以节省空间
         y.setPosition(YAxis.YAxisLabelPosition.INSIDE_CHART);
-        // 不绘制网格线，保持图表简洁
         y.setDrawGridLines(false);
-        // 设置Y轴线条颜色为黑色，增强视觉效果
         y.setAxisLineColor(Color.BLACK);
 
-        // 禁用右侧Y轴，因为光线数据只需要一个Y轴参考
         lightChart.getAxisRight().setEnabled(false);
 
-        // 创建光线数据集对象，设置其属性
-        lightDataSet = new LineDataSet(null, "Light");
-        // 设置线条宽度为2浮点数，提高数据线的可见性
-        lightDataSet.setLineWidth(2f);
-        // 设置数据线颜色为蓝色，以区分光线数据
-        lightDataSet.setColor(Color.BLUE);
-        // 使用CUBIC_BEZIER模式绘制曲线，使数据线更加平滑
-        lightDataSet.setMode(LineDataSet.Mode.CUBIC_BEZIER);
-        // 不绘制数据值，因为图表上不需要显示具体的数值
-        lightDataSet.setDrawValues(false);
-        // 不绘制数据点的圆圈，简化视觉效果
-        lightDataSet.setDrawCircles(false);
-        // 设置高亮颜色为蓝色，与数据线颜色保持一致
-        lightDataSet.setHighLightColor(Color.BLUE);
-
-        // 创建并设置LineData对象，将其添加到图表中
+        lightDataSet = createLightSet(); // 使用 createLightSet 方法
         LineData data = new LineData(lightDataSet);
         lightChart.setData(data);
+        lightChart.invalidate(); // 初始绘制
     }
 
-    /**
-     * 添加光照强度条目到图表中
-     * 此方法将给定的光照强度值作为新条目添加到光照强度图表的数据集中
-     * 如果数据集不存在，则会先创建一个新的数据集，然后添加条目
-     *
-     * @param lightLevel 光照强度值，以浮点数表示
-     */
     private void addLightEntry(float lightLevel) {
-        // 获取光照强度图表的当前数据
         LineData data = lightChart.getData();
-
-        // 检查数据对象是否存在
         if (data != null) {
-            // 尝试获取第一个数据集
             ILineDataSet set = data.getDataSetByIndex(0);
-
-            // 如果数据集不存在，则创建一个新的光照强度数据集并添加到数据对象中
             if (set == null) {
                 set = createLightSet();
                 data.addDataSet(set);
             }
 
-            // 向数据集中添加新的条目，并通知数据对象更改
+            // 控制数据点数量，移除旧数据
+            if (set.getEntryCount() >= dataSetSize) {
+                // 移除第一个点 (最旧的点)
+                set.removeFirst();
+                // 可能需要调整剩余点的 x 值，但这会比较复杂且影响性能
+                // 更简单的做法是让 X 轴自动滚动，或者不严格控制数量，只限制显示范围
+            }
+
+            // 添加新点，x 值为当前点的数量 (会一直增加)
             data.addEntry(new Entry(set.getEntryCount(), lightLevel), 0);
             data.notifyDataChanged();
 
-            // 通知图表数据已更改，以便更新显示
             lightChart.notifyDataSetChanged();
-            // 设置图表的可见X轴范围最大值为数据集大小
+            // 设置 X 轴显示范围，让最新的点始终可见
             lightChart.setVisibleXRangeMaximum(dataSetSize);
-            // 将图表移动到显示最新条目的位置
+            // 移动视图，将最新的点显示在图表右侧
             lightChart.moveViewToX(data.getEntryCount());
         }
     }
 
-    /**
-     * 创建并返回一个表示光的LineDataSet对象
-     * 该方法配置了数据集的基本属性，如线宽、颜色、模式以及是否绘制数值和圆点
-     *
-     * @return LineDataSet 配置好属性的LineDataSet对象，用于图表中表示光的数据序列
-     */
     private LineDataSet createLightSet() {
-        // 创建一个名为"Light"的LineDataSet对象，初始数据为null
-        LineDataSet set = new LineDataSet(null, "Light");
-
-        // 设置线宽为2浮点数单位
+        LineDataSet set = new LineDataSet(null, "光照强度 (lux)"); // 修改标签
         set.setLineWidth(2f);
-
-        // 设置线条颜色为蓝色
-        set.setColor(Color.BLUE);
-
-        // 设置线条模式为CUBIC_BEZIER，即使用贝塞尔曲线连接数据点
-        set.setMode(LineDataSet.Mode.CUBIC_BEZIER);
-
-        // 设置不绘制数据值
+        set.setColor(Color.rgb(135, 206, 250)); // 淡蓝色
+        set.setMode(LineDataSet.Mode.CUBIC_BEZIER); // 平滑曲线
         set.setDrawValues(false);
-
-        // 设置不绘制圆点
-        set.setDrawCircles(false);
-
-        // 设置高亮颜色为蓝色
-        set.setHighLightColor(Color.BLUE);
-
-        // 返回配置好的LineDataSet对象
+        set.setDrawCircles(false); // 不绘制数据点圆圈
+        set.setHighLightColor(Color.rgb(0, 191, 255)); // 高亮颜色 (深天蓝)
+        // 启用填充绘制
+        set.setDrawFilled(true);
+        set.setFillColor(Color.rgb(135, 206, 250)); // 填充颜色
+        set.setFillAlpha(100); // 填充透明度
         return set;
     }
 }
