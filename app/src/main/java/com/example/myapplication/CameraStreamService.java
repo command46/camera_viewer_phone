@@ -129,13 +129,12 @@ public class CameraStreamService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         Log.i(TAG, ">>> 服务 onStartCommand 开始, flags=" + flags + ", startId=" + startId);
 
-        // --- 新增：检查是否是手动启动 ---
+        //检查是否是手动启动 ---
         boolean isManualStart = false;
         if (intent != null && intent.getBooleanExtra("MANUAL_START", false)) {
             isManualStart = true;
             Log.d(TAG, "onStartCommand: 检测到手动启动标志 (MANUAL_START=true)");
         }
-        // --- 结束新增 ---
 
         String receivedIp = null;
         boolean isRestartAttempt = (flags & START_FLAG_RETRY) != 0
@@ -176,14 +175,13 @@ public class CameraStreamService extends Service {
             return START_NOT_STICKY;
         }
 
-        // --- 修改：只有在手动启动时才重置计数 ---
+        //只有在手动启动时才重置计数 ---
         if (isManualStart) {
             Log.d(TAG, "onStartCommand: 手动启动，重置重试计数。");
             resetRetryCount();
         } else {
             Log.d(TAG, "onStartCommand: 非手动启动 (自动重启)，不重置重试计数。当前计数: " + sharedPreferences.getInt(KEY_RETRY_COUNT, -1)); // Log 查看当前计数值
         }
-        // --- 结束修改 ---
 
 
         // 检查是否已有活动流...
@@ -253,7 +251,9 @@ public class CameraStreamService extends Service {
                         Log.e(TAG, "onDestroy: 设置精确闹钟权限不足！", se);
                         showToast("无法安排自动重启：缺少权限");
                         // 可以尝试设置非精确闹钟作为后备
-                        // alarmManager.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAtMillis, pendingIntent);
+                         alarmManager.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAtMillis, pendingIntent);
+                         Log.i(TAG, "onDestroy: 使用 set 设置了闹钟作为后备");
+                         showToast("设置非精确闹钟作为后备");
                     } catch (Exception e){
                         Log.e(TAG, "onDestroy: 设置闹钟时出错！", e);
                         showToast("安排自动重启时出错");
@@ -285,7 +285,7 @@ public class CameraStreamService extends Service {
         Log.w(TAG, "<<< 服务 onDestroy 完成。");
     }
 
-    // --- Core Logic Methods ---
+    // --- 核心逻辑代码
 
     /** 重置重试计数器 */
     private void resetRetryCount() {

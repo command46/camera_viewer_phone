@@ -60,9 +60,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private static final int CAMERA_PERMISSION_REQUEST_CODE = 100;
     private static final int PERMISSION_REQUEST_CODE = 1001; // 用于其他权限组（如果需要）
 
-    // 服务启动标志 (根据需要保留或移除)
-    private final boolean StartPhotoService = false;
-    private final boolean StartVideoService = false;
     private final boolean StartCameraStreamService = true; // 默认启动 CameraStreamService
 
     private Button connectButton;
@@ -132,7 +129,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             boolean restartEnabled = CameraStreamServiceSwitch.isChecked();
 
             // 2. 验证 IP 地址
-            if (!isValidIpAddress(currentIp)) { // 使用 IP 验证函数
+            if (isValidIpAddress(currentIp)) { // 使用 IP 验证函数
                 Toast.makeText(this, "请输入有效的 IP 地址", Toast.LENGTH_SHORT).show();
                 return;
             }
@@ -207,21 +204,19 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         // 确保 Activity 仍然处于活动状态，避免在已销毁的 Activity 上显示弹窗
         if (!isFinishing() && !isDestroyed()) {
             // 使用 runOnUiThread 确保弹窗在主线程显示
-            runOnUiThread(() -> {
-                new AlertDialog.Builder(MainActivity.this)
-                        .setTitle("连接失败")
-                        .setMessage("尝试自动重新连接服务失败。请检查网络连接和服务器状态，然后尝试手动连接。")
-                        .setPositiveButton("知道了", (dialog, which) -> dialog.dismiss()) // 关闭对话框
-                        .setNegativeButton("尝试重连", (dialog, which) -> {
-                            // 用户点击“尝试重连”，模拟点击界面上的连接按钮
-                            if (connectButton != null) {
-                                connectButton.performClick();
-                            }
-                            dialog.dismiss();
-                        })
-                        .setCancelable(false) // 不允许点击对话框外部区域取消
-                        .show();
-            });
+            runOnUiThread(() -> new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("连接失败")
+                    .setMessage("尝试自动重新连接服务失败。请检查网络连接和服务器状态，然后尝试手动连接。")
+                    .setPositiveButton("知道了", (dialog, which) -> dialog.dismiss()) // 关闭对话框
+                    .setNegativeButton("尝试重连", (dialog, which) -> {
+                        // 用户点击“尝试重连”，模拟点击界面上的连接按钮
+                        if (connectButton != null) {
+                            connectButton.performClick();
+                        }
+                        dialog.dismiss();
+                    })
+                    .setCancelable(false) // 不允许点击对话框外部区域取消
+                    .show());
         } else {
             Log.w(TAG,"尝试显示重试失败对话框，但 Activity 已结束。");
         }
@@ -320,7 +315,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
      */
     private boolean isValidIpAddress(String ip) {
         // 检查非空且符合 IP 地址的格式
-        return !TextUtils.isEmpty(ip) && Patterns.IP_ADDRESS.matcher(ip).matches();
+        return TextUtils.isEmpty(ip) || !Patterns.IP_ADDRESS.matcher(ip).matches();
     }
 
 
@@ -475,7 +470,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private void startSelectedServices(){
         // 再次确认 ipAddress 是最新的且有效
         // 使用成员变量 this.ipAddress，它应该在点击按钮时已验证并更新
-        if (!isValidIpAddress(this.ipAddress)){
+        if (isValidIpAddress(this.ipAddress)){
             Toast.makeText(this, "启动服务前发现无效 IP 地址", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -483,12 +478,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         Log.d(TAG,"准备启动服务，使用 IP: " + this.ipAddress);
 
         // 根据标志启动不同的服务 (当前只关注 CameraStreamService)
-        if (StartVideoService){
-            // startVideoService(); // 如果有 VideoService
-        }
-        if (StartPhotoService){
-            // startPhotoService(); // 如果有 PhotoService
-        }
         if (StartCameraStreamService){
             startCameraStreamService();
         }
@@ -504,54 +493,13 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         serviceIntent.putExtra("IP_ADDRESS", this.ipAddress);
         // --- 新增：添加手动启动标志 ---
         serviceIntent.putExtra("MANUAL_START", true);
-        // --- 结束新增 ---
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(serviceIntent);
-            } else {
-                startService(serviceIntent);
-            }
+            startForegroundService(serviceIntent);
             Log.i(TAG, "CameraStreamService 启动命令已发送 (手动)。");
             Toast.makeText(this,"相机流服务已启动", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             Log.e(TAG, "启动 CameraStreamService 失败", e);
             Toast.makeText(this,"启动相机流服务失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
-        }
-    }
-
-    // 示例：启动 VideoService (如果存在)
-    private void startVideoService() {
-        Log.d(TAG, "启动 VideoService...");
-        Intent serviceIntent = new Intent(this, VideoService.class); // 假设存在 VideoService 类
-        serviceIntent.putExtra("IP_ADDRESS", this.ipAddress);
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(serviceIntent);
-            } else {
-                startService(serviceIntent);
-            }
-            Log.i(TAG, "VideoService 启动命令已发送。");
-        } catch (Exception e) {
-            Log.e(TAG, "启动 VideoService 失败", e);
-            Toast.makeText(this,"启动视频服务失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
-        }
-    }
-
-    // 示例：启动 PhotoService (如果存在)
-    private void startPhotoService() {
-        Log.d(TAG, "启动 PhotoService...");
-        Intent serviceIntent = new Intent(this, PhotoService.class); // 假设存在 PhotoService 类
-        serviceIntent.putExtra("IP_ADDRESS", this.ipAddress);
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(serviceIntent);
-            } else {
-                startService(serviceIntent);
-            }
-            Log.i(TAG, "PhotoService 启动命令已发送。");
-        } catch (Exception e) {
-            Log.e(TAG, "启动 PhotoService 失败", e);
-            Toast.makeText(this,"启动照片服务失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 
