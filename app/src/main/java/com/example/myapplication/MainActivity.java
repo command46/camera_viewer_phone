@@ -380,11 +380,17 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     }
 
 
-    /*
-      * 播放全屏爆炸动画和 "爽" 字效果，文字最后变成粒子飞散
+    /**
+     * 播放全屏爆炸动画和 "爽" 字效果，文字最后变成粒子飞散 (修复卡顿和时长)
      */
     private void playExplosionAnimation() {
         final ViewGroup rootView = (ViewGroup) getWindow().getDecorView();
+        // --- 增加检查，防止重复添加 ---
+        if (rootView.findViewById(R.id.explosionOverlayRoot) != null) {
+            Log.w(TAG, "动画已在进行中，忽略此次触发");
+            return; // 如果覆盖层已存在，则不执行，防止重叠或错误
+        }
+        // --- 结束检查 ---
 
         final View overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_explosion, rootView, false);
         final FrameLayout overlayRoot = overlayView.findViewById(R.id.explosionOverlayRoot);
@@ -392,12 +398,16 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
         rootView.addView(overlayView);
 
-        long baseDuration = 600; // 基础动画时间
+        long baseDuration = 1000; // 文字和背景的基础动画时间
         long textAppearDelay = 100;
-        long particleAnimDuration = 800; // 粒子动画持续时间
-        long overlayRemovalDelay = baseDuration + particleAnimDuration / 2; // 覆盖层移除延迟
+        // --- 增加粒子动画时长 ---
+        long particleAnimBaseDuration = 1500; // 粒子动画的基础时长 (毫秒)
+        // --- 调整覆盖层移除延迟 ---
+        // 确保覆盖层在最慢的粒子消失后才移除，增加一些缓冲
+        // (最慢粒子时长约 particleAnimBaseDuration * 1.3)
+        long overlayRemovalDelay = baseDuration + (long)(particleAnimBaseDuration * 1.3) + 100;
 
-        // 背景层动画 (不变)
+        // 背景层动画 (延长淡出时间)
         overlayRoot.animate()
                 .alpha(1f)
                 .setDuration(baseDuration / 3)
@@ -405,13 +415,14 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 .withEndAction(() -> {
                     overlayRoot.animate()
                             .alpha(0f)
-                            .setDuration(baseDuration * 2 / 3 + particleAnimDuration / 2) // 延长淡出时间以覆盖粒子动画
+                            // 淡出时长需要覆盖粒子动画+文字动画
+                            .setDuration(baseDuration * 2 / 3 + (long)(particleAnimBaseDuration * 1.3))
                             .setInterpolator(new DecelerateInterpolator())
                             .start();
                 })
                 .start();
 
-        // "爽" 字动画：出现并放大，结束后触发粒子效果
+        // "爽" 字动画 (不变，结束时触发粒子)
         explosionText.animate()
                 .setStartDelay(textAppearDelay)
                 .alpha(1f)
@@ -421,104 +432,115 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 .setInterpolator(new OvershootInterpolator(2f))
                 .setListener(new AnimatorListenerAdapter() {
                     @Override
-                    public void onAnimationEnd(Animator animation) {
-                        // --- 文字放大动画结束 ---
-                        // 1. 立即隐藏文字
-                        explosionText.setVisibility(View.GONE); // 或者 alpha(0f)
-
-                        // 2. 在文字原位置创建并播放粒子动画
-                        createAndAnimateParticles(explosionText, overlayRoot, particleAnimDuration);
-
-                        // 3. 移除覆盖层 (延迟执行，确保粒子动画有时间播放)
-                        //    注意：这个移除逻辑现在不依赖文字动画结束了
+                    public void onAnimationStart(Animator animation) {
+//                        explosionText.setVisibility(View.GONE);
+                        // 使用新的基础时长
+                        createAndAnimateParticles(explosionText, overlayRoot, particleAnimBaseDuration);
                     }
                 })
                 .start();
 
         // --- 延迟移除整个覆盖层 ---
-        // 使用 postDelayed 确保即使粒子动画的 listener 出问题，覆盖层最终也会被移除
         rootView.postDelayed(() -> {
-            if (overlayView.getParent() != null) {
-                rootView.removeView(overlayView);
+            // --- 增加移除前的检查 ---
+            View overlayToRemove = rootView.findViewById(R.id.explosionOverlayRoot);
+            if (overlayToRemove != null && overlayToRemove.getParent() instanceof ViewGroup) {
+                ((ViewGroup)overlayToRemove.getParent()).removeView(overlayToRemove);
                 Log.d(TAG,"爆炸动画覆盖层已移除 (延迟)");
+            } else {
+                Log.w(TAG,"尝试移除覆盖层，但未找到或已移除");
             }
-        }, overlayRemovalDelay); // 使用计算好的延迟时间
+            // --- 结束检查 ---
+        }, overlayRemovalDelay);
 
-        Log.d(TAG,"开始播放爆炸动画 (带粒子)");
+        Log.d(TAG,"开始播放增强版爆炸动画 (带粒子)");
     }
 
     /**
-     * 在指定容器内，从一个源 View 的位置创建并动画化粒子效果
+     * 在指定容器内，从一个源 View 的位置创建并动画化粒子效果 (修复卡顿和时长版)
      * @param sourceView 动画起源的 View (用于获取位置)
      * @param container 容纳粒子的 ViewGroup
-     * @param duration 粒子动画的持续时间
+     * @param baseDuration 粒子动画的基础持续时间 (会在此基础上随机化)
      */
-    private void createAndAnimateParticles(View sourceView, ViewGroup container, long duration) {
+    private void createAndAnimateParticles(View sourceView, ViewGroup container, long baseDuration) {
         if (sourceView == null || container == null) return;
 
-        int particleCount = 30; // 粒子数量
-        int particleSize = dpToPx(6); // 粒子大小 (dp)
+        int particleCount = 640; // 可以稍微减少粒子数，如果50仍然卡顿
+        int minParticleSize = dpToPx(3);
+        int maxParticleSize = dpToPx(8);
 
-        // 获取源 View 在屏幕上的中心点坐标
+        // 获取起点坐标 (同前)
         int[] sourcePos = new int[2];
         sourceView.getLocationOnScreen(sourcePos);
-        // 注意：getLocationOnScreen 获取的是左上角，需要加上宽高的一半得到中心点
-        // 同时，添加到 container 时，坐标是相对于 container 的，如果 container 不是全屏 DecorView，需要转换
-        // 这里假设 container 就是 overlayRoot，它和 DecorView 大小一致或是其子 View，坐标系接近
-        // 为简单起见，直接用 screen 坐标，但更健壮的方法是转换坐标系
         float startX = sourcePos[0] + sourceView.getWidth() / 2f;
         float startY = sourcePos[1] + sourceView.getHeight() / 2f;
 
-
-        // 获取屏幕大致尺寸，用于计算飞行距离
+        // 获取屏幕尺寸和距离 (同前)
         Display display = getWindowManager().getDefaultDisplay();
         Point size = new Point();
         display.getSize(size);
         int screenWidth = size.x;
         int screenHeight = size.y;
-        float maxDistance = Math.min(screenWidth, screenHeight) * 0.6f; // 最大飞行距离
+        float maxDistance = Math.max(screenWidth, screenHeight) * 0.7f;
+        float minDistance = maxDistance * 0.3f;
+
+        // --- 新增：计算每个粒子的最大延迟时间 ---
+        // 让所有粒子的启动分散在大约 150ms 内完成
+        long maxStaggerDelay = 150;
 
 
-        Log.d(TAG, "创建粒子，起点: (" + startX + ", " + startY + ")");
+        Log.d(TAG, "创建粒子 (增强版)，起点: (" + startX + ", " + startY + ")");
 
         for (int i = 0; i < particleCount; i++) {
-            // 创建粒子 View
+            // 创建粒子 View (同前)
             View particle = new View(this);
-            particle.setBackgroundColor(getRandomParticleColor()); // 设置随机颜色
+            particle.setBackgroundColor(getRandomParticleColor());
+            int particleSize = random.nextInt(maxParticleSize - minParticleSize + 1) + minParticleSize;
             FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(particleSize, particleSize);
+            // --- 延迟添加 View 可能帮助不大，主要瓶颈在启动动画 ---
             container.addView(particle, params);
 
-            // 设置初始位置 (中心) - 注意要减去粒子自身宽高的一半
+            // 设置初始位置和状态 (同前)
             particle.setX(startX - particleSize / 2f);
             particle.setY(startY - particleSize / 2f);
-            particle.setAlpha(1f); // 初始不透明
+            particle.setAlpha(1f);
+            particle.setScaleX(1.2f);
+            particle.setScaleY(1.2f);
 
-            // 计算随机飞行方向和距离
-            double angle = random.nextDouble() * 2 * Math.PI; // 0 到 2PI 的随机角度
-            float distance = (float) (random.nextDouble() * maxDistance * 0.5 + maxDistance * 0.5); // 飞行距离，至少一半最大距离
-
-            // 计算终点位移
+            // 计算随机目标 (同前)
+            double angle = random.nextDouble() * 2 * Math.PI;
+            float distance = random.nextFloat() * (maxDistance - minDistance) + minDistance;
             float translationX = (float) (distance * Math.cos(angle));
             float translationY = (float) (distance * Math.sin(angle));
-            float rotation = random.nextFloat() * 720 - 360; // 随机旋转 -360 到 360 度
+            float rotation = random.nextFloat() * 1080 - 540;
+
+            // --- 调整随机化动画时长，使其整体更长 ---
+            // 时长范围改为 80% 到 130% 的基础时长
+            long duration = (long) (baseDuration * (random.nextFloat() * 0.5 + 0.8));
+
+            // --- 新增：计算每个粒子的启动延迟 ---
+            long startDelay = (long) (((float)i / particleCount) * maxStaggerDelay); // 根据索引计算延迟
 
             // 执行粒子动画
             particle.animate()
-                    .translationXBy(translationX) // 相对于初始位置移动
+                    .setStartDelay(startDelay) // *** 应用启动延迟 ***
+                    .translationXBy(translationX)
                     .translationYBy(translationY)
-                    .alpha(0f) // 最终变透明
+                    .alpha(0f)
                     .rotationBy(rotation)
-                    .setDuration(duration)
-                    .setInterpolator(new DecelerateInterpolator()) // 减速飞出
+                    .scaleX(0.7f)
+                    .scaleY(0.7f)
+                    .setDuration(duration) // 使用更长且随机化的时长
+                    .setInterpolator(new DecelerateInterpolator(1.5f))
                     .setListener(new AnimatorListenerAdapter() {
                         @Override
                         public void onAnimationEnd(Animator animation) {
-                            // --- 动画结束，移除该粒子 ---
                             if (particle.getParent() != null) {
                                 container.removeView(particle);
                             }
                         }
                     })
+                    .withLayer() // *** 尝试使用硬件层加速 ***
                     .start();
         }
     }
