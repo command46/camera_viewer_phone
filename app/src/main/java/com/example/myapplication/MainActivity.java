@@ -3,6 +3,8 @@ package com.example.myapplication;
 import android.Manifest;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
+import android.animation.AnimatorSet;
+import android.animation.ObjectAnimator;
 import android.annotation.SuppressLint;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -28,6 +30,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.AccelerateInterpolator;
 import android.view.animation.DecelerateInterpolator;
+import android.view.animation.LinearInterpolator;
 import android.view.animation.OvershootInterpolator;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
@@ -36,6 +39,7 @@ import android.widget.CalendarView;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -381,81 +385,217 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
 
     /**
-     * 播放全屏爆炸动画和 "爽" 字效果，文字最后变成粒子飞散 (修复卡顿和时长)
+     * 播放全屏爆炸动画、粒子、冲击波和爱心效果 (浮夸版)
      */
     private void playExplosionAnimation() {
         final ViewGroup rootView = (ViewGroup) getWindow().getDecorView();
-        // --- 增加检查，防止重复添加 ---
         if (rootView.findViewById(R.id.explosionOverlayRoot) != null) {
             Log.w(TAG, "动画已在进行中，忽略此次触发");
-            return; // 如果覆盖层已存在，则不执行，防止重叠或错误
+            return;
         }
-        // --- 结束检查 ---
 
         final View overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_explosion, rootView, false);
         final FrameLayout overlayRoot = overlayView.findViewById(R.id.explosionOverlayRoot);
         final TextView explosionText = overlayView.findViewById(R.id.explosionTextView);
+        final ImageView shockwaveImageView = overlayView.findViewById(R.id.shockwaveImageView); // 获取冲击波 ImageView
 
         rootView.addView(overlayView);
 
-        long baseDuration = 1000; // 文字和背景的基础动画时间
+        long textAnimDuration = 800;       // "爽"字动画时长
         long textAppearDelay = 100;
-        // --- 增加粒子动画时长 ---
-        long particleAnimBaseDuration = 1500; // 粒子动画的基础时长 (毫秒)
-        // --- 调整覆盖层移除延迟 ---
-        // 确保覆盖层在最慢的粒子消失后才移除，增加一些缓冲
-        // (最慢粒子时长约 particleAnimBaseDuration * 1.3)
-        long overlayRemovalDelay = baseDuration + (long)(particleAnimBaseDuration * 1.3) + 100;
+        long particleAnimBaseDuration = 1500; // 粒子动画基础时长
+        long shockwaveDelay = textAnimDuration / 2 + textAppearDelay; // 冲击波在"爽"字放大一半时开始
+        long shockwaveDuration = 1000;     // 冲击波动画时长
+        long heartStartDelay = shockwaveDelay + shockwaveDuration / 3; // 冲击波扩散后开始爱心
+        long heartAnimBaseDuration = 2500; // 爱心动画基础时长 (更长)
+        long maxParticleDuration = (long)(particleAnimBaseDuration * 1.3);
+        long maxHeartDuration = (long)(heartAnimBaseDuration * 1.3);
 
-        // 背景层动画 (延长淡出时间)
-        overlayRoot.animate()
-                .alpha(1f)
-                .setDuration(baseDuration / 3)
-                .setInterpolator(new AccelerateInterpolator())
-                .withEndAction(() -> {
-                    overlayRoot.animate()
-                            .alpha(0f)
-                            // 淡出时长需要覆盖粒子动画+文字动画
-                            .setDuration(baseDuration * 2 / 3 + (long)(particleAnimBaseDuration * 1.3))
-                            .setInterpolator(new DecelerateInterpolator())
-                            .start();
-                })
-                .start();
+        // --- 调整覆盖层移除延迟，需要覆盖所有动画 ---
+        long overlayRemovalDelay = Math.max(shockwaveDelay + shockwaveDuration, heartStartDelay + maxHeartDuration) + 300;
 
-        // "爽" 字动画 (不变，结束时触发粒子)
+        // 1. 背景层动画 (淡入，保持粉色更久)
+        overlayRoot.setBackgroundColor(Color.TRANSPARENT); // 初始背景透明，靠冲击波上色
+        ObjectAnimator bgFadeIn = ObjectAnimator.ofFloat(overlayRoot, "alpha", 0f, 0.6f); // 淡入到一定透明度
+        bgFadeIn.setDuration(shockwaveDelay + shockwaveDuration); // 背景淡入持续到冲击波结束
+        bgFadeIn.setInterpolator(new DecelerateInterpolator());
+
+        ObjectAnimator bgFadeOut = ObjectAnimator.ofFloat(overlayRoot, "alpha", 0.6f, 0f);
+        bgFadeOut.setStartDelay(shockwaveDelay + shockwaveDuration); // 冲击波结束后开始淡出
+        bgFadeOut.setDuration(maxHeartDuration); // 淡出持续时间覆盖爱心动画
+        bgFadeOut.setInterpolator(new AccelerateInterpolator());
+
+        AnimatorSet bgSet = new AnimatorSet();
+        bgSet.playSequentially(bgFadeIn, bgFadeOut); // 顺序播放淡入淡出
+        // bgSet.start(); // 背景动画由冲击波触发或独立启动
+
+        // 2. "爽" 字动画 (结束后触发粒子)
         explosionText.animate()
                 .setStartDelay(textAppearDelay)
                 .alpha(1f)
                 .scaleX(1.5f)
                 .scaleY(1.5f)
-                .setDuration(baseDuration * 2 / 3)
+                .setDuration(textAnimDuration)
                 .setInterpolator(new OvershootInterpolator(2f))
                 .setListener(new AnimatorListenerAdapter() {
                     @Override
-                    public void onAnimationStart(Animator animation) {
-//                        explosionText.setVisibility(View.GONE);
-                        // 使用新的基础时长
+                    public void onAnimationEnd(Animator animation) { // 改为 onAnimationEnd
+                        explosionText.setVisibility(View.GONE);
+                        // 触发粒子效果
                         createAndAnimateParticles(explosionText, overlayRoot, particleAnimBaseDuration);
                     }
                 })
                 .start();
 
-        // --- 延迟移除整个覆盖层 ---
+        // 3. 粉色冲击波动画 (延迟启动)
+        overlayRoot.postDelayed(() -> {
+            startShockwaveAnimation(shockwaveImageView, overlayRoot, shockwaveDuration);
+            // 在冲击波开始时，也启动背景的动画，或者在此之前就启动
+            if (!bgSet.isStarted()) bgSet.start();
+        }, shockwaveDelay);
+
+
+        // 4. 爱心喷泉动画 (更晚延迟启动)
+        overlayRoot.postDelayed(() -> {
+            createAndAnimateHearts(overlayRoot, heartAnimBaseDuration);
+        }, heartStartDelay);
+
+
+        // 5. 延迟移除整个覆盖层
         rootView.postDelayed(() -> {
-            // --- 增加移除前的检查 ---
             View overlayToRemove = rootView.findViewById(R.id.explosionOverlayRoot);
             if (overlayToRemove != null && overlayToRemove.getParent() instanceof ViewGroup) {
                 ((ViewGroup)overlayToRemove.getParent()).removeView(overlayToRemove);
-                Log.d(TAG,"爆炸动画覆盖层已移除 (延迟)");
+                Log.d(TAG,"浮夸动画覆盖层已移除 (延迟)");
             } else {
                 Log.w(TAG,"尝试移除覆盖层，但未找到或已移除");
             }
-            // --- 结束检查 ---
         }, overlayRemovalDelay);
 
-        Log.d(TAG,"开始播放增强版爆炸动画 (带粒子)");
+        Log.d(TAG,"开始播放浮夸版爆炸动画 (粒子+冲击波+爱心)");
     }
 
+    /**
+     * 启动粉色冲击波动画
+     */
+    private void startShockwaveAnimation(ImageView shockwaveView, ViewGroup container, long duration) {
+        if (shockwaveView == null) return;
+
+        shockwaveView.setVisibility(View.VISIBLE);
+        shockwaveView.setAlpha(0.8f); // 设置初始透明度 (不需要全不透明)
+        shockwaveView.setScaleX(0.1f);
+        shockwaveView.setScaleY(0.1f);
+
+        // 获取容器大小，冲击波放大到能覆盖容器
+        float maxScale = Math.max(container.getWidth(), container.getHeight()) * 1.5f; // 放大到比容器还大一点
+
+        AnimatorSet shockwaveSet = new AnimatorSet();
+        ObjectAnimator scaleX = ObjectAnimator.ofFloat(shockwaveView, "scaleX", 0.1f, maxScale);
+        ObjectAnimator scaleY = ObjectAnimator.ofFloat(shockwaveView, "scaleY", 0.1f, maxScale);
+        ObjectAnimator alpha = ObjectAnimator.ofFloat(shockwaveView, "alpha", 0.8f, 0f); // 放大同时淡出
+
+        shockwaveSet.playTogether(scaleX, scaleY, alpha);
+        shockwaveSet.setDuration(duration);
+        shockwaveSet.setInterpolator(new AccelerateInterpolator(1.5f)); // 加速扩散
+        shockwaveSet.addListener(new AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(Animator animation) {
+                shockwaveView.setVisibility(View.GONE); // 动画结束隐藏
+                // 可以同时给 overlayRoot 上个色
+                // container.setBackgroundColor(Color.parseColor("#33FFC0CB")); // 设置一个淡淡的粉色背景
+            }
+        });
+        shockwaveSet.start();
+        Log.d(TAG, "冲击波动画开始");
+    }
+
+    /**
+     * 创建并动画化爱心喷泉效果
+     */
+    private void createAndAnimateHearts(ViewGroup container, long baseDuration) {
+        if (container == null) return;
+
+        int heartCount = 100; // 爱心数量
+        int minHeartSize = dpToPx(15);
+        int maxHeartSize = dpToPx(35);
+        long maxStaggerDelay = 800; // 爱心出现的时间更分散
+
+        // 获取容器尺寸
+        int containerWidth = container.getWidth();
+        int containerHeight = container.getHeight();
+        // 爱心起始位置在底部中心区域
+        float startXBase = containerWidth / 2f;
+        float startY = containerHeight - dpToPx(20); // 稍微离底部一点
+        float startXVariance = containerWidth * 0.1f; // X轴起始位置的随机范围
+
+        Log.d(TAG, "创建爱心喷泉");
+
+        for (int i = 0; i < heartCount; i++) {
+            // 创建爱心 ImageView
+            ImageView heart = new ImageView(this);
+            heart.setImageResource(R.drawable.ic_heart); // 设置爱心图片
+            // --- 随机设置爱心颜色 (粉色或白色) ---
+            heart.setColorFilter(random.nextBoolean() ? Color.WHITE : Color.parseColor("#FF69B4"));
+
+            int heartSize = random.nextInt(maxHeartSize - minHeartSize + 1) + minHeartSize;
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(heartSize, heartSize);
+            container.addView(heart, params);
+
+            // 设置随机起始位置
+            float startX = startXBase + (random.nextFloat() * 2f - 1f) * startXVariance;
+            heart.setX(startX - heartSize / 2f);
+            heart.setY(startY - heartSize / 2f); // Y轴起始固定在底部
+            heart.setAlpha(0f); // 初始透明
+            heart.setRotation(random.nextFloat() * 60 - 30); // 初始随机倾斜
+
+            // --- 动画参数 ---
+            long duration = (long) (baseDuration * (random.nextFloat() * 0.5 + 0.8)); // 随机时长
+            long startDelay = (long) (((float)i / heartCount) * maxStaggerDelay); // 分散启动
+            float targetY = -heartSize; // 最终飘出屏幕顶部
+            float horizontalDrift = (random.nextFloat() * 2f - 1f) * (containerWidth * 0.6f); // 水平漂移距离
+
+            // --- 执行爱心动画 ---
+            // 使用 ObjectAnimator 组合更复杂的动画路径或效果
+            // 这里简化处理，用 ViewPropertyAnimator
+            heart.animate()
+                    .setStartDelay(startDelay)
+                    .alpha(1f) // 先淡入
+                    .translationY(targetY) // 向上移动
+                    .translationXBy(horizontalDrift) // 水平漂移
+                    .rotationBy(random.nextFloat() * 360 - 180) // 向上时旋转
+                    .setDuration(duration)
+                    .setInterpolator(new LinearInterpolator()) // 匀速或非常慢的减速漂浮
+                    .setListener(new AnimatorListenerAdapter() {
+                        @Override
+                        public void onAnimationStart(Animator animation) {
+                            // (可选) 可以在开始时加一个小的缩放脉冲
+                            heart.animate().scaleX(1.2f).scaleY(1.2f).setDuration(150).withEndAction(()->{
+                                heart.animate().scaleX(1f).scaleY(1f).setDuration(150).start();
+                            }).start();
+                        }
+
+                        @Override
+                        public void onAnimationEnd(Animator animation) {
+                            // --- 快要结束时淡出 --- (或者直接在向上移动的同时淡出)
+                            heart.animate()
+                                    .alpha(0f)
+                                    .setDuration(duration / 4) // 最后1/4时间淡出
+                                    .setInterpolator(new AccelerateInterpolator())
+                                    .setListener(new AnimatorListenerAdapter() {
+                                        @Override
+                                        public void onAnimationEnd(Animator animation) {
+                                            if (heart.getParent() != null) {
+                                                container.removeView(heart);
+                                            }
+                                        }
+                                    })
+                                    .start();
+                        }
+                    })
+                    .withLayer()
+                    .start();
+        }
+    }
     /**
      * 在指定容器内，从一个源 View 的位置创建并动画化粒子效果 (修复卡顿和时长版)
      * @param sourceView 动画起源的 View (用于获取位置)
@@ -465,7 +605,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private void createAndAnimateParticles(View sourceView, ViewGroup container, long baseDuration) {
         if (sourceView == null || container == null) return;
 
-        int particleCount = 640; // 可以稍微减少粒子数，如果50仍然卡顿
+        int particleCount = 40; // 可以稍微减少粒子数，如果50仍然卡顿
         int minParticleSize = dpToPx(3);
         int maxParticleSize = dpToPx(8);
 
@@ -486,7 +626,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
         // --- 新增：计算每个粒子的最大延迟时间 ---
         // 让所有粒子的启动分散在大约 150ms 内完成
-        long maxStaggerDelay = 150;
+        long maxStaggerDelay = 450;
 
 
         Log.d(TAG, "创建粒子 (增强版)，起点: (" + startX + ", " + startY + ")");
