@@ -1,3 +1,12 @@
 <resources>
     <string name="app_name">My Application</string>
+    <string name="计数器数值">0</string>
+    <string name="增加计数">增加计数</string>
+    <string name="计数器数">0</string>
+    <string name="lux">光线传感器: -- lux</string>
+    <string name="connect">连接</string>
+    <string name="ip">服务器 IP 地址</string>
+    <string name="重新链接">服务结束后自动重启连接</string>
+    <string name="减少计数">减少计数</string>
+    <string name="LOVE次数">高潮次数</string>
 </resources>

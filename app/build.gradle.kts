@@ -33,6 +33,7 @@ android {
 }
 
 dependencies {
+    implementation (libs.gson)
     implementation (libs.cardview)
     implementation(libs.mpandroidchart)
     implementation(libs.appcompat)

@@ -2,10 +2,10 @@ package com.example.myapplication;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
-import android.content.BroadcastReceiver; // 引入 BroadcastReceiver
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter; // 引入 IntentFilter
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
@@ -15,11 +15,15 @@ import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
+import android.text.Editable;
 import android.text.TextUtils;
+import android.text.TextWatcher;
 import android.util.Log;
 import android.util.Patterns;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageButton;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -34,7 +38,6 @@ import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
-// import androidx.localbroadcastmanager.content.LocalBroadcastManager; // 可选：如果想用本地广播替代全局广播
 
 import com.github.mikephil.charting.charts.LineChart;
 import com.github.mikephil.charting.components.XAxis;
@@ -45,15 +48,13 @@ import com.github.mikephil.charting.data.LineDataSet;
 import com.github.mikephil.charting.interfaces.datasets.ILineDataSet;
 import com.google.android.material.switchmaterial.SwitchMaterial;
 
-import java.util.ArrayList;
-import java.util.List;
-
 public class MainActivity extends AppCompatActivity implements SensorEventListener {
 
     // SharedPreferences 相关常量
     private static final String PREFS_NAME = "CameraServicePrefs";
     private static final String KEY_IP_ADDRESS = "last_ip_address";
     private static final String KEY_RESTART_SERVICE = "restart_service_flag";
+
     // KEY_RETRY_COUNT 由 Service 内部管理，Activity 不需要知道
 
     private static final String TAG = "MainActivity";
@@ -68,14 +69,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private SharedPreferences sharedPreferences;
     private SwitchMaterial CameraStreamServiceSwitch; // 重启开关
 
-    // 需要的权限列表
-    private final String[] REQUIRED_PERMISSIONS = {
-            Manifest.permission.CAMERA,
-            // Manifest.permission.RECORD_AUDIO, // 如果 VideoService 需要录音
-            // Manifest.permission.WRITE_EXTERNAL_STORAGE, // 如果需要写文件（Android 10 以下）
-            // Android 13+ 通知权限是动态添加的
-    };
-
     // 传感器相关
     private SensorManager sensorManager;
     private Sensor lightSensor;
@@ -83,6 +76,12 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     // 图表相关
     private LineChart lightChart;
+
+    //计数器
+    private ImageButton decrementButton;
+    private ImageButton incrementButton;
+    private TextView counterTextView;
+
 
     // 权限请求启动器
     private ActivityResultLauncher<String> requestNotificationPermissionLauncher;
@@ -147,6 +146,40 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             // 当开关状态改变时，立即保存新的状态
             saveRestartPreference(isChecked);
         });
+        //计数器
+        decrementButton = findViewById(R.id.decrementButton);
+        incrementButton = findViewById(R.id.incrementButton);
+        counterTextView = findViewById(R.id.countTextView);
+        decrementButton.setOnClickListener(v -> {
+            int currentCount = Integer.parseInt(counterTextView.getText().toString());
+            if (currentCount > 0) {
+                counterTextView.setText(String.valueOf(currentCount - 1));
+            }
+        });
+        incrementButton.setOnClickListener(v -> {
+            int currentCount = Integer.parseInt(counterTextView.getText().toString());
+            counterTextView.setText(String.valueOf(currentCount + 1));
+        });
+        counterTextView.setText("0");
+        //为计数器添加监听器有变化就写入本地数据
+        counterTextView.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+
+            }
+
+            @Override
+            public void onTextChanged(CharSequence charSequence, int i, int i1, int i2) {
+
+            }
+
+            @Override
+            public void afterTextChanged(Editable editable) {
+
+            }
+        });
+
+
 
         // 初始化图表
         lightChart = findViewById(R.id.lightChart);
@@ -366,9 +399,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             // 提示用户去系统设置中手动开启
             Toast.makeText(this, "请在应用设置中手动开启通知权限以确保服务正常运行", Toast.LENGTH_LONG).show();
             // 可以选择性地引导用户去设置界面：
-            // Intent intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
-            // intent.putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
-            // startActivity(intent);
+             Intent intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+             intent.putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+             startActivity(intent);
         }
     }
 
@@ -387,7 +420,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     // 传感器精度变化回调（通常不用处理）
     @Override
     public void onAccuracyChanged(Sensor sensor, int accuracy) {
-        // 通常不需要处理
     }
 
     /**
@@ -411,11 +443,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             // 等待权限结果回调
             return;
         }
-
-        // 3. 如果需要其他权限 (如录音、存储)，在这里检查或在 checkAndRequestPermissions() 中统一检查
-        // if (!checkAndRequestPermissions()) { // 如果使用了 REQUIRED_PERMISSIONS 数组
-        //    return; // 等待权限结果
-        // }
 
         // --- 所有必要权限都已授予 ---
         Log.i(TAG, "所有必要权限已授予，准备启动服务...");
@@ -501,43 +528,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             Log.e(TAG, "启动 CameraStreamService 失败", e);
             Toast.makeText(this,"启动相机流服务失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
-    }
-
-    /**
-     * 检查并请求一组权限 (如果使用了 REQUIRED_PERMISSIONS 数组)。
-     * @return boolean 是否所有权限都已授予 (如果返回 false，表示正在请求权限)。
-     */
-    private boolean checkAndRequestPermissions() {
-        List<String> permissionsNeeded = new ArrayList<>();
-        // 将基础权限添加到列表
-        List<String> finalPermissions = new ArrayList<>(List.of(REQUIRED_PERMISSIONS));
-
-        // 动态添加通知权限 (如果目标 SDK >= 33)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            finalPermissions.add(Manifest.permission.POST_NOTIFICATIONS);
-        }
-        // 动态添加前台服务相机权限 (如果目标 SDK >= 34)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            finalPermissions.add(Manifest.permission.FOREGROUND_SERVICE_CAMERA);
-        }
-
-        // 检查每个权限是否已被授予
-        for (String permission : finalPermissions) {
-            // 过滤掉空字符串（兼容旧写法）
-            if (!TextUtils.isEmpty(permission) && ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
-                permissionsNeeded.add(permission); // 添加未授予的权限到待请求列表
-            }
-        }
-
-        // 如果有需要请求的权限
-        if (!permissionsNeeded.isEmpty()) {
-            Log.d(TAG, "请求权限组: " + permissionsNeeded);
-            // 请求权限
-            ActivityCompat.requestPermissions(this, permissionsNeeded.toArray(new String[0]), PERMISSION_REQUEST_CODE);
-            return false; // 需要等待权限请求结果
-        }
-        Log.d(TAG, "所有权限组权限已满足。");
-        return true; // 所有权限都已满足
     }
 
     // Activity 停止时调用

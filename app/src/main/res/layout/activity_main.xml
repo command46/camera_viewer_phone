@@ -8,6 +8,7 @@
     tools:context=".MainActivity">
 
     <!-- IP 地址输入 -->
+
     <com.google.android.material.textfield.TextInputLayout
         android:id="@+id/ipAddressTextInputLayout"
         style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
@@ -16,7 +17,7 @@
         android:layout_marginStart="16dp"
         android:layout_marginTop="16dp"
         android:layout_marginEnd="16dp"
-        android:hint="服务器 IP 地址"
+        android:hint="@string/ip"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent">
@@ -36,7 +37,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
-        android:text="连接"
+        android:text="@string/connect"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/ipAddressTextInputLayout" />
@@ -68,7 +69,7 @@
                 android:layout_height="wrap_content"
                 android:layout_gravity="center_horizontal"
                 android:layout_marginBottom="12dp"
-                android:text="光线传感器: -- lux"
+                android:text="@string/lux"
                 android:textAppearance="@style/TextAppearance.MaterialComponents.Body1"
                 android:textSize="16sp" />
 
@@ -83,7 +84,77 @@
     </androidx.cardview.widget.CardView>
 
 
-    <!-- 设置区域 (自动重启开关) -->
+    <!-- 计数器 -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/sensorCardView2"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="24dp"
+        android:layout_marginEnd="16dp"
+        app:cardCornerRadius="8dp"
+        app:cardElevation="4dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/sensorCardView">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/高潮Title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginBottom="12dp"
+                android:textAppearance="@style/TextAppearance.MaterialComponents.Body1"
+                android:textSize="16sp"
+                android:text="@string/LOVE次数" />
+
+            <LinearLayout
+                android:id="@+id/linearLayout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="16dp">
+                <!-- 减号按钮 -->
+                <ImageButton
+                    android:id="@+id/decrementButton"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/减少计数"
+                    android:src="@drawable/ic_remove" /> <!-- 提供点击效果 -->
+                <!-- 计数值显示 (复用之前的 TextView) -->
+                <TextView
+                    android:id="@+id/countTextView"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:text="@string/计数器数"
+                    android:textAppearance="@style/TextAppearance.MaterialComponents.Headline6"
+                    android:textSize="24sp" />      <!-- 增大字体大小 -->
+
+
+                <!-- 加号按钮 -->
+                <ImageButton
+                    android:id="@+id/incrementButton"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/增加计数"
+                    android:src="@drawable/ic_add" /> <!-- 提供点击效果 -->
+            </LinearLayout>
+        </LinearLayout>
+
+    </androidx.cardview.widget.CardView>
+
     <com.google.android.material.switchmaterial.SwitchMaterial
         android:id="@+id/CameraStreamServiceSwitch"
         android:layout_width="0dp"
@@ -94,11 +165,11 @@
         android:layout_marginBottom="16dp"
         android:checked="true"
         android:paddingVertical="12dp"
-        android:text="服务结束后自动重启连接"
+        android:text="@string/重新链接"
         android:textSize="16sp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/sensorCardView"
+        app:layout_constraintTop_toBottomOf="@+id/sensorCardView2"
         app:layout_constraintVertical_bias="0.0" />
 
 
