@@ -19,9 +19,7 @@ import android.hardware.SensorManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
-import android.text.Editable;
 import android.text.TextUtils;
-import android.text.TextWatcher;
 import android.util.Log;
 import android.util.Patterns;
 import android.view.Display;
@@ -31,10 +29,14 @@ import android.view.ViewGroup;
 import android.view.animation.AccelerateInterpolator;
 import android.view.animation.DecelerateInterpolator;
 import android.view.animation.OvershootInterpolator;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.CalendarView;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -50,6 +52,8 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
+import com.example.myapplication.ToolData.JsonDataStorage;
+import com.example.myapplication.ToolData.RecordData;
 import com.github.mikephil.charting.charts.LineChart;
 import com.github.mikephil.charting.components.XAxis;
 import com.github.mikephil.charting.components.YAxis;
@@ -59,6 +63,10 @@ import com.github.mikephil.charting.data.LineDataSet;
 import com.github.mikephil.charting.interfaces.datasets.ILineDataSet;
 import com.google.android.material.switchmaterial.SwitchMaterial;
 
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Random;
 
 public class MainActivity extends AppCompatActivity implements SensorEventListener {
@@ -82,6 +90,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private SharedPreferences sharedPreferences;
     private SwitchMaterial CameraStreamServiceSwitch; // 重启开关
 
+
     // 传感器相关
     private SensorManager sensorManager;
     private Sensor lightSensor;
@@ -95,6 +104,12 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private ImageButton incrementButton;
     private TextView counterTextView;
 
+    private Spinner pleasureLevelSpinner; // 新增：爽感等级 Spinner
+    private Button viewMonthlyDataButton; // 新增：查看月视图按钮
+
+    // --- 新增：用于日期格式化 ---
+    private SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault());
+    private String todayDateKey = ""; // 今天日期的键
 
     // 权限请求启动器
     private ActivityResultLauncher<String> requestNotificationPermissionLauncher;
@@ -116,126 +131,126 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
             return insets;
         });
+        // 获取今天的日期键
+        todayDateKey = dateFormat.format(Calendar.getInstance().getTime());
 
         // 初始化 SharedPreferences
         sharedPreferences = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
 
         // 初始化传感器
-        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
-        lightSensor = sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT);
-        lightSensorTextView = findViewById(R.id.lightSensorTextView);
-        if (lightSensor == null) {
-            lightSensorTextView.setText("光线传感器: 不可用");
-        }
+        initSensors();
 
         // 初始化视图控件
-        CameraStreamServiceSwitch = findViewById(R.id.CameraStreamServiceSwitch);
-        connectButton = findViewById(R.id.connectButton);
-        ipAddressEditText = findViewById(R.id.ipAddressEditText);
+        initViews();
 
         // 加载保存的设置 (IP 地址和重启开关状态)
         loadSavedPreferences();
 
-        // 设置连接按钮点击事件
-        connectButton.setOnClickListener(v -> {
-            // 1. 获取当前输入
-            String currentIp = ipAddressEditText.getText().toString().trim();
-            boolean restartEnabled = CameraStreamServiceSwitch.isChecked();
+        // 设置监听器
+        setupListeners();
 
-            // 2. 验证 IP 地址
-            if (isValidIpAddress(currentIp)) { // 使用 IP 验证函数
-                Toast.makeText(this, "请输入有效的 IP 地址", Toast.LENGTH_SHORT).show();
-                return;
-            }
+        // 初始化图表
+        setupLightChart();
 
-            // 3. 保存有效的 IP 和重启设置到 SharedPreferences
-            this.ipAddress = currentIp; // 更新成员变量，供 startService 使用
-            savePreferences(currentIp, restartEnabled);
+        // 初始化通知权限请求
+        initNotificationPermissionLauncher();
 
-            // 4. 检查权限并尝试启动服务
-            checkPermissionsAndStartService();
-        });
+        // 检查通知权限
+        checkNotificationPermission();
 
-        // 设置重启开关状态变化监听器
-        CameraStreamServiceSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            // 当开关状态改变时，立即保存新的状态
-            saveRestartPreference(isChecked);
-        });
-        //计数器
+        // 初始化重试失败广播接收器
+        setupRetryFailureReceiver();
+
+        // --- 新增：加载今天的数据到计数器和 Spinner ---
+        loadTodayData();
+    }
+    private void initSensors() {
+        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        lightSensor = sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT);
+        lightSensorTextView = findViewById(R.id.lightSensorTextView);
+        if (lightSensor == null) {
+            lightSensorTextView.setText(getString(R.string.lux).replace("-- lux", "不可用"));
+        }
+    }
+
+    private void initViews() {
+        CameraStreamServiceSwitch = findViewById(R.id.CameraStreamServiceSwitch);
+        connectButton = findViewById(R.id.connectButton);
+        ipAddressEditText = findViewById(R.id.ipAddressEditText);
+        lightChart = findViewById(R.id.lightChart);
         decrementButton = findViewById(R.id.decrementButton);
         incrementButton = findViewById(R.id.incrementButton);
         counterTextView = findViewById(R.id.countTextView);
+        pleasureLevelSpinner = findViewById(R.id.pleasureLevelSpinner); // 初始化 Spinner
+        viewMonthlyDataButton = findViewById(R.id.viewMonthlyDataButton); // 初始化按钮
+    }
+
+    private void setupListeners() {
+        // 连接按钮
+        connectButton.setOnClickListener(v -> {
+            String currentIp = ipAddressEditText.getText().toString().trim();
+            boolean restartEnabled = CameraStreamServiceSwitch.isChecked();
+            if (isValidIpAddress(currentIp)) {
+                Toast.makeText(this, "请输入有效的 IP 地址", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            this.ipAddress = currentIp;
+            savePreferences(currentIp, restartEnabled);
+            checkPermissionsAndStartService();
+        });
+
+        // 重启开关
+        CameraStreamServiceSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            saveRestartPreference(isChecked);
+        });
+
+        // 减号按钮
         decrementButton.setOnClickListener(v -> {
-            int currentCount = Integer.parseInt(counterTextView.getText().toString());
-            if (currentCount > 0) {
-                counterTextView.setText(String.valueOf(currentCount - 1));
-            }
+            updateCounter(-1); // 调用更新计数器方法
         });
+
+        // 加号按钮
         incrementButton.setOnClickListener(v -> {
-            updateCounter();
-        });
-        counterTextView.setText("0");
-        //为计数器添加监听器有变化就写入本地数据
-        counterTextView.addTextChangedListener(new TextWatcher() {
-            @Override
-            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
-
-            }
-
-            @Override
-            public void onTextChanged(CharSequence charSequence, int i, int i1, int i2) {
-
-            }
-
-            @Override
-            public void afterTextChanged(Editable editable) {
-
-            }
+            updateCounter(1); // 调用更新计数器方法
         });
 
+        // 设置 Spinner 适配器
+        ArrayAdapter<CharSequence> adapter = ArrayAdapter.createFromResource(this,
+                R.array.pleasure_levels, android.R.layout.simple_spinner_item);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        pleasureLevelSpinner.setAdapter(adapter);
 
-
-        // 初始化图表
-        lightChart = findViewById(R.id.lightChart);
-        setupLightChart();
-
-        // 初始化通知权限请求启动器
-        requestNotificationPermissionLauncher = registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
-            if (isGranted) {
-                isNotificationPermissionGranted = true;
-                Log.i(TAG, "通知权限已授予。");
-                // 权限授予后，可以再次尝试启动服务（如果是因为缺少此权限而中断的话）
-                checkPermissionsAndStartService();
-            } else {
-                isNotificationPermissionGranted = false;
-                Log.w(TAG, "通知权限被拒绝。");
-                // 权限被拒绝，可以显示提示或解释
-                showNotificationPermissionRationale(); // 再次解释原因或提示功能受限
-                Toast.makeText(this,"缺少通知权限，前台服务可能无法正常启动或显示通知", Toast.LENGTH_LONG).show();
+        // Spinner 选择监听器
+        pleasureLevelSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                // 当用户选择新的爽感等级时，保存当前状态
+                saveCurrentState();
+            }
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+                // 通常不需要处理
             }
         });
 
-        // 检查通知权限 (如果需要，其他权限检查在点击连接时进行)
-        checkNotificationPermission();
-
-        // --- 新增：初始化重试失败广播接收器 ---
-        setupRetryFailureReceiver();
-        // --- 结束新增 ---
+        // 查看月视图按钮
+        viewMonthlyDataButton.setOnClickListener(v -> showMonthlyViewDialog());
     }
 
     /**
      * 更新计数器并保存状态
      */
-    private void updateCounter() {
+    private void updateCounter(int change) {
         int currentCount = 0;
         try {
             currentCount = Integer.parseInt(counterTextView.getText().toString());
         } catch (NumberFormatException e) {
             Log.e(TAG, "无法解析计数器文本: " + counterTextView.getText(), e);
+            // 可以选择重置为 0 或其他处理
         }
 
-        int newCount = currentCount + 1;
-        if (newCount < 0) {
+        int newCount = currentCount + change;
+        if (newCount < 0) { // 不允许小于 0
             newCount = 0;
         }
         counterTextView.setText(String.valueOf(newCount));
@@ -243,8 +258,127 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         if (newCount > 0) { // 只有实际增加了才播放（防止从0到0播放）
             playExplosionAnimation();
         }
-        // --- 结束新增 ---
+        saveCurrentState();
     }
+    /**
+     * 获取当前状态（次数、爽感）并保存到 JSON
+     */
+    private void saveCurrentState() {
+        // 仅保存今天的数据
+        int currentCount = 0;
+        try {
+            currentCount = Integer.parseInt(counterTextView.getText().toString());
+        } catch (NumberFormatException e) {
+            Log.e(TAG, "保存状态时无法解析计数器文本: " + counterTextView.getText(), e);
+            // 可以根据需要决定是否继续保存，或者使用默认值 0
+        }
+
+        int selectedPleasureLevel = 1; // 默认值
+        // Spinner position 是从 0 开始的，我们需要 1-5
+        if (pleasureLevelSpinner.getSelectedItem() != null) {
+            try {
+                selectedPleasureLevel = Integer.parseInt(pleasureLevelSpinner.getSelectedItem().toString());
+            } catch (NumberFormatException e) {
+                Log.e(TAG, "保存状态时无法解析 Spinner 值: " + pleasureLevelSpinner.getSelectedItem(), e);
+                selectedPleasureLevel = pleasureLevelSpinner.getSelectedItemPosition() + 1; // 尝试使用位置
+                if(selectedPleasureLevel < 1 || selectedPleasureLevel > 5) selectedPleasureLevel = 1; // 再次检查
+            }
+        }
+
+        Log.d(TAG, "正在保存状态 - 日期: " + todayDateKey + ", 次数: " + currentCount + ", 爽感: " + selectedPleasureLevel);
+        JsonDataStorage.saveRecord(this, todayDateKey, currentCount, selectedPleasureLevel);
+    }
+    /**
+     * 加载今天的数据（如果存在）并更新 UI
+     */
+    private void loadTodayData() {
+        RecordData todayRecord = JsonDataStorage.getRecord(this, todayDateKey);
+        if (todayRecord != null) {
+            Log.d(TAG, "找到今天的数据: 次数=" + todayRecord.getCount() + ", 爽感=" + todayRecord.getPleasureLevel());
+            counterTextView.setText(String.valueOf(todayRecord.getCount()));
+            // 设置 Spinner 的选中项 (爽感是 1-5, Spinner 位置是 0-4)
+            int spinnerPosition = todayRecord.getPleasureLevel() - 1;
+            if (spinnerPosition >= 0 && spinnerPosition < pleasureLevelSpinner.getAdapter().getCount()) {
+                pleasureLevelSpinner.setSelection(spinnerPosition);
+            } else {
+                pleasureLevelSpinner.setSelection(0); // 默认选第一个
+            }
+        } else {
+            Log.d(TAG, "今天 ("+ todayDateKey +") 没有找到记录，使用默认值。");
+            // 如果没有记录，保持 XML 中的默认值或显式设置为 0 和默认爽感
+            counterTextView.setText("0");
+            pleasureLevelSpinner.setSelection(0); // 默认选第一个 (即等级 1)
+        }
+    }
+    /**
+     * 显示月视图对话框
+     */
+    @SuppressLint("StringFormatMatches")
+    private void showMonthlyViewDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        LayoutInflater inflater = this.getLayoutInflater();
+        View dialogView = inflater.inflate(R.layout.dialog_monthly_view, null);
+        builder.setView(dialogView);
+        builder.setTitle(R.string.monthly_view_title);
+
+        CalendarView calendarView = dialogView.findViewById(R.id.calendarViewDialog);
+        TextView detailsTextView = dialogView.findViewById(R.id.detailsTextViewDialog);
+
+        // 获取所有记录用于查找
+        final Map<String, RecordData> allRecords = JsonDataStorage.getAllRecords(this);
+
+        calendarView.setOnDateChangeListener((view, year, month, dayOfMonth) -> {
+            // 月份 month 是从 0 开始的，需要加 1
+            Calendar selectedCalendar = Calendar.getInstance();
+            selectedCalendar.set(year, month, dayOfMonth);
+            String selectedDateKey = dateFormat.format(selectedCalendar.getTime());
+
+            RecordData selectedRecord = allRecords.get(selectedDateKey);
+            if (selectedRecord != null) {
+                detailsTextView.setText(getString(R.string.record_details_format,
+                        selectedRecord.getCount(), selectedRecord.getPleasureLevel()));
+            } else {
+                detailsTextView.setText(R.string.no_record_found);
+            }
+        });
+
+        // 设置对话框关闭按钮
+        builder.setPositiveButton(R.string.close, (dialog, which) -> dialog.dismiss());
+
+        AlertDialog dialog = builder.create();
+        dialog.show();
+
+        // --- (可选) 初始化时显示当天的信息 ---
+        // 触发一次当天的日期改变事件来显示初始信息
+        long initialMillis = Calendar.getInstance().getTimeInMillis();
+        calendarView.setDate(initialMillis, false, true); // 设置日历到今天
+        Calendar initialCalendar = Calendar.getInstance();
+        initialCalendar.setTimeInMillis(initialMillis);
+        String initialDateKey = dateFormat.format(initialCalendar.getTime());
+        RecordData initialRecord = allRecords.get(initialDateKey);
+        if (initialRecord != null) {
+            detailsTextView.setText(getString(R.string.record_details_format,
+                    initialRecord.getCount(), initialRecord.getPleasureLevel()));
+        } else {
+            detailsTextView.setText(R.string.no_record_found);
+        }
+        // --- 结束可选部分 ---
+    }
+    private void initNotificationPermissionLauncher() {
+        requestNotificationPermissionLauncher = registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
+            if (isGranted) {
+                isNotificationPermissionGranted = true;
+                Log.i(TAG, "通知权限已授予。");
+                checkPermissionsAndStartService();
+            } else {
+                isNotificationPermissionGranted = false;
+                Log.w(TAG, "通知权限被拒绝。");
+                showNotificationPermissionRationale();
+                Toast.makeText(this,"缺少通知权限，前台服务可能无法正常启动或显示通知", Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
 
     /*
       * 播放全屏爆炸动画和 "爽" 字效果，文字最后变成粒子飞散
@@ -732,15 +866,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             Toast.makeText(this,"启动相机流服务失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
-
-    // Activity 停止时调用
     @Override
     protected void onStop() {
         super.onStop();
-        // 可以在这里保存一些临时状态，但 IP 地址的保存应该在明确点击“连接”时进行。
-        // SharedPreferences.Editor editor = sharedPreferences.edit();
-        // editor.putString("last_edited_ip", ipAddressEditText.getText().toString()); // 可以用不同的键名保存
-        // editor.apply();
     }
 
 
@@ -834,4 +962,3 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         return set;
     }
 }
-// --- END OF FILE MainActivity.java (包含失败弹窗逻辑) ---
