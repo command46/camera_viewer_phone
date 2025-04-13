@@ -15,7 +15,8 @@
     <string name="monthly_view_title">月度记录</string>
     <string name="close">关闭</string>
     <string name="no_record_found">无记录</string>
-    <string name="record_details_format">次数: %1$d, 爽感: %2$s</string> <!-- %2$d 改为 %2$s 用于显示文字 -->
+    <string name="record_details_format">次数: %1$d, 爽感: %2$s</string>
+    <string name="爽">爽</string> <!-- %2$d 改为 %2$s 用于显示文字 -->
 
     <!-- 爽感等级选项 (用描述性词语替换) -->
     <string-array name="pleasure_levels">

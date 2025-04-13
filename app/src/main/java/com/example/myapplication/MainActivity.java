@@ -1,6 +1,8 @@
 package com.example.myapplication;
 
 import android.Manifest;
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
 import android.annotation.SuppressLint;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -9,6 +11,7 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.graphics.Point;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -21,8 +24,16 @@ import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.util.Log;
 import android.util.Patterns;
+import android.view.Display;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.animation.AccelerateInterpolator;
+import android.view.animation.DecelerateInterpolator;
+import android.view.animation.OvershootInterpolator;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -47,6 +58,8 @@ import com.github.mikephil.charting.data.LineData;
 import com.github.mikephil.charting.data.LineDataSet;
 import com.github.mikephil.charting.interfaces.datasets.ILineDataSet;
 import com.google.android.material.switchmaterial.SwitchMaterial;
+
+import java.util.Random;
 
 public class MainActivity extends AppCompatActivity implements SensorEventListener {
 
@@ -90,6 +103,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     //用于接收服务重试失败的广播
     private BroadcastReceiver retryFailureReceiver;
     private IntentFilter retryFailureIntentFilter;
+
+    private final Random random = new Random(); // 用于生成随机效果
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -157,8 +172,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             }
         });
         incrementButton.setOnClickListener(v -> {
-            int currentCount = Integer.parseInt(counterTextView.getText().toString());
-            counterTextView.setText(String.valueOf(currentCount + 1));
+            updateCounter();
         });
         counterTextView.setText("0");
         //为计数器添加监听器有变化就写入本地数据
@@ -208,6 +222,195 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         setupRetryFailureReceiver();
         // --- 结束新增 ---
     }
+
+    /**
+     * 更新计数器并保存状态
+     */
+    private void updateCounter() {
+        int currentCount = 0;
+        try {
+            currentCount = Integer.parseInt(counterTextView.getText().toString());
+        } catch (NumberFormatException e) {
+            Log.e(TAG, "无法解析计数器文本: " + counterTextView.getText(), e);
+        }
+
+        int newCount = currentCount + 1;
+        if (newCount < 0) {
+            newCount = 0;
+        }
+        counterTextView.setText(String.valueOf(newCount));
+        // --- 新增：只有在增加计数时才播放动画 ---
+        if (newCount > 0) { // 只有实际增加了才播放（防止从0到0播放）
+            playExplosionAnimation();
+        }
+        // --- 结束新增 ---
+    }
+
+    /*
+      * 播放全屏爆炸动画和 "爽" 字效果，文字最后变成粒子飞散
+     */
+    private void playExplosionAnimation() {
+        final ViewGroup rootView = (ViewGroup) getWindow().getDecorView();
+
+        final View overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_explosion, rootView, false);
+        final FrameLayout overlayRoot = overlayView.findViewById(R.id.explosionOverlayRoot);
+        final TextView explosionText = overlayView.findViewById(R.id.explosionTextView);
+
+        rootView.addView(overlayView);
+
+        long baseDuration = 600; // 基础动画时间
+        long textAppearDelay = 100;
+        long particleAnimDuration = 800; // 粒子动画持续时间
+        long overlayRemovalDelay = baseDuration + particleAnimDuration / 2; // 覆盖层移除延迟
+
+        // 背景层动画 (不变)
+        overlayRoot.animate()
+                .alpha(1f)
+                .setDuration(baseDuration / 3)
+                .setInterpolator(new AccelerateInterpolator())
+                .withEndAction(() -> {
+                    overlayRoot.animate()
+                            .alpha(0f)
+                            .setDuration(baseDuration * 2 / 3 + particleAnimDuration / 2) // 延长淡出时间以覆盖粒子动画
+                            .setInterpolator(new DecelerateInterpolator())
+                            .start();
+                })
+                .start();
+
+        // "爽" 字动画：出现并放大，结束后触发粒子效果
+        explosionText.animate()
+                .setStartDelay(textAppearDelay)
+                .alpha(1f)
+                .scaleX(1.5f)
+                .scaleY(1.5f)
+                .setDuration(baseDuration * 2 / 3)
+                .setInterpolator(new OvershootInterpolator(2f))
+                .setListener(new AnimatorListenerAdapter() {
+                    @Override
+                    public void onAnimationEnd(Animator animation) {
+                        // --- 文字放大动画结束 ---
+                        // 1. 立即隐藏文字
+                        explosionText.setVisibility(View.GONE); // 或者 alpha(0f)
+
+                        // 2. 在文字原位置创建并播放粒子动画
+                        createAndAnimateParticles(explosionText, overlayRoot, particleAnimDuration);
+
+                        // 3. 移除覆盖层 (延迟执行，确保粒子动画有时间播放)
+                        //    注意：这个移除逻辑现在不依赖文字动画结束了
+                    }
+                })
+                .start();
+
+        // --- 延迟移除整个覆盖层 ---
+        // 使用 postDelayed 确保即使粒子动画的 listener 出问题，覆盖层最终也会被移除
+        rootView.postDelayed(() -> {
+            if (overlayView.getParent() != null) {
+                rootView.removeView(overlayView);
+                Log.d(TAG,"爆炸动画覆盖层已移除 (延迟)");
+            }
+        }, overlayRemovalDelay); // 使用计算好的延迟时间
+
+        Log.d(TAG,"开始播放爆炸动画 (带粒子)");
+    }
+
+    /**
+     * 在指定容器内，从一个源 View 的位置创建并动画化粒子效果
+     * @param sourceView 动画起源的 View (用于获取位置)
+     * @param container 容纳粒子的 ViewGroup
+     * @param duration 粒子动画的持续时间
+     */
+    private void createAndAnimateParticles(View sourceView, ViewGroup container, long duration) {
+        if (sourceView == null || container == null) return;
+
+        int particleCount = 30; // 粒子数量
+        int particleSize = dpToPx(6); // 粒子大小 (dp)
+
+        // 获取源 View 在屏幕上的中心点坐标
+        int[] sourcePos = new int[2];
+        sourceView.getLocationOnScreen(sourcePos);
+        // 注意：getLocationOnScreen 获取的是左上角，需要加上宽高的一半得到中心点
+        // 同时，添加到 container 时，坐标是相对于 container 的，如果 container 不是全屏 DecorView，需要转换
+        // 这里假设 container 就是 overlayRoot，它和 DecorView 大小一致或是其子 View，坐标系接近
+        // 为简单起见，直接用 screen 坐标，但更健壮的方法是转换坐标系
+        float startX = sourcePos[0] + sourceView.getWidth() / 2f;
+        float startY = sourcePos[1] + sourceView.getHeight() / 2f;
+
+
+        // 获取屏幕大致尺寸，用于计算飞行距离
+        Display display = getWindowManager().getDefaultDisplay();
+        Point size = new Point();
+        display.getSize(size);
+        int screenWidth = size.x;
+        int screenHeight = size.y;
+        float maxDistance = Math.min(screenWidth, screenHeight) * 0.6f; // 最大飞行距离
+
+
+        Log.d(TAG, "创建粒子，起点: (" + startX + ", " + startY + ")");
+
+        for (int i = 0; i < particleCount; i++) {
+            // 创建粒子 View
+            View particle = new View(this);
+            particle.setBackgroundColor(getRandomParticleColor()); // 设置随机颜色
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(particleSize, particleSize);
+            container.addView(particle, params);
+
+            // 设置初始位置 (中心) - 注意要减去粒子自身宽高的一半
+            particle.setX(startX - particleSize / 2f);
+            particle.setY(startY - particleSize / 2f);
+            particle.setAlpha(1f); // 初始不透明
+
+            // 计算随机飞行方向和距离
+            double angle = random.nextDouble() * 2 * Math.PI; // 0 到 2PI 的随机角度
+            float distance = (float) (random.nextDouble() * maxDistance * 0.5 + maxDistance * 0.5); // 飞行距离，至少一半最大距离
+
+            // 计算终点位移
+            float translationX = (float) (distance * Math.cos(angle));
+            float translationY = (float) (distance * Math.sin(angle));
+            float rotation = random.nextFloat() * 720 - 360; // 随机旋转 -360 到 360 度
+
+            // 执行粒子动画
+            particle.animate()
+                    .translationXBy(translationX) // 相对于初始位置移动
+                    .translationYBy(translationY)
+                    .alpha(0f) // 最终变透明
+                    .rotationBy(rotation)
+                    .setDuration(duration)
+                    .setInterpolator(new DecelerateInterpolator()) // 减速飞出
+                    .setListener(new AnimatorListenerAdapter() {
+                        @Override
+                        public void onAnimationEnd(Animator animation) {
+                            // --- 动画结束，移除该粒子 ---
+                            if (particle.getParent() != null) {
+                                container.removeView(particle);
+                            }
+                        }
+                    })
+                    .start();
+        }
+    }
+
+    /**
+     * 获取随机的粒子颜色 (示例：白色、黄色、橙色系)
+     * @return Color int
+     */
+    private int getRandomParticleColor() {
+        int[] colors = {
+                Color.WHITE,
+                Color.YELLOW,
+                0xFFFFA500, // Orange
+                0xFFFFE4B5  // Moccasin (淡黄)
+        };
+        return colors[random.nextInt(colors.length)];
+    }
+
+    /**
+     * 辅助方法：将 dp 转换为 px
+     */
+    private int dpToPx(int dp) {
+        float density = getResources().getDisplayMetrics().density;
+        return Math.round((float) dp * density);
+    }
+
 
     /**
      * 设置用于接收服务重试失败通知的广播接收器。
