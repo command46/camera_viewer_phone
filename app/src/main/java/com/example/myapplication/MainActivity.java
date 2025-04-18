@@ -57,6 +57,8 @@ import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.myapplication.ToolData.JsonDataStorage;
 import com.example.myapplication.ToolData.RecordData;
@@ -330,20 +332,49 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
         CalendarView calendarView = dialogView.findViewById(R.id.calendarViewDialog);
         TextView detailsTextView = dialogView.findViewById(R.id.detailsTextViewDialog);
+        RecyclerView monthRecordsRecyclerView = dialogView.findViewById(R.id.monthRecordsRecyclerView);
 
         // 获取所有记录用于查找
         final Map<String, RecordData> allRecords = JsonDataStorage.getAllRecords(this);
 
+        // 获取爽感等级文字描述
+        final String[] pleasureLevels = getResources().getStringArray(R.array.pleasure_levels);
+
+        // 设置RecyclerView
+        RecordAdapter adapter = new RecordAdapter(this);
+        monthRecordsRecyclerView.setAdapter(adapter);
+        monthRecordsRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+
+        // 用于计算月度统计数据
+        Calendar currentCalendar = Calendar.getInstance();
+        updateMonthRecords(adapter, allRecords, currentCalendar.get(Calendar.YEAR),
+                currentCalendar.get(Calendar.MONTH), detailsTextView);
+
         calendarView.setOnDateChangeListener((view, year, month, dayOfMonth) -> {
-            // 月份 month 是从 0 开始的，需要加 1
+            // 更新月度记录列表
+            if (year != currentCalendar.get(Calendar.YEAR) ||
+                    month != currentCalendar.get(Calendar.MONTH)) {
+                currentCalendar.set(Calendar.YEAR, year);
+                currentCalendar.set(Calendar.MONTH, month);
+                updateMonthRecords(adapter, allRecords, year, month, detailsTextView);
+            }
+
+            // 显示选中日期的详细信息
             Calendar selectedCalendar = Calendar.getInstance();
             selectedCalendar.set(year, month, dayOfMonth);
             String selectedDateKey = dateFormat.format(selectedCalendar.getTime());
 
             RecordData selectedRecord = allRecords.get(selectedDateKey);
             if (selectedRecord != null) {
+                // 获取爽感的文字描述
+                String pleasureLevelText = "未知";
+                int pleasureLevel = selectedRecord.getPleasureLevel();
+                if (pleasureLevel >= 1 && pleasureLevel <= pleasureLevels.length) {
+                    pleasureLevelText = pleasureLevels[pleasureLevel - 1];
+                }
+
                 detailsTextView.setText(getString(R.string.record_details_format,
-                        selectedRecord.getCount(), selectedRecord.getPleasureLevel()));
+                        selectedRecord.getCount(), pleasureLevelText));
             } else {
                 detailsTextView.setText(R.string.no_record_found);
             }
@@ -355,8 +386,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         AlertDialog dialog = builder.create();
         dialog.show();
 
-        // --- (可选) 初始化时显示当天的信息 ---
-        // 触发一次当天的日期改变事件来显示初始信息
+        // 初始化时显示当天的信息
         long initialMillis = Calendar.getInstance().getTimeInMillis();
         calendarView.setDate(initialMillis, false, true); // 设置日历到今天
         Calendar initialCalendar = Calendar.getInstance();
@@ -364,12 +394,51 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         String initialDateKey = dateFormat.format(initialCalendar.getTime());
         RecordData initialRecord = allRecords.get(initialDateKey);
         if (initialRecord != null) {
+            // 获取爽感的文字描述
+            String pleasureLevelText = "未知";
+            int pleasureLevel = initialRecord.getPleasureLevel();
+            if (pleasureLevel >= 1 && pleasureLevel <= pleasureLevels.length) {
+                pleasureLevelText = pleasureLevels[pleasureLevel - 1];
+            }
+
             detailsTextView.setText(getString(R.string.record_details_format,
-                    initialRecord.getCount(), initialRecord.getPleasureLevel()));
+                    initialRecord.getCount(), pleasureLevelText));
         } else {
             detailsTextView.setText(R.string.no_record_found);
         }
-        // --- 结束可选部分 ---
+    }
+
+    /**
+     * 更新月记录列表并计算月度统计
+     */
+    private void updateMonthRecords(RecordAdapter adapter, Map<String, RecordData> allRecords,
+                                    int year, int month, TextView summaryTextView) {
+        adapter.setMonthData(allRecords, year, month);
+
+        // 计算月度统计
+        int totalCount = 0;
+        int pleasureLevelSum = 0;
+        int recordCount = 0;
+
+        String monthPrefix = String.format("%04d-%02d-", year, month + 1);
+
+        for (Map.Entry<String, RecordData> entry : allRecords.entrySet()) {
+            if (entry.getKey().startsWith(monthPrefix)) {
+                RecordData record = entry.getValue();
+                totalCount += record.getCount();
+                pleasureLevelSum += record.getPleasureLevel();
+                recordCount++;
+            }
+        }
+
+        // 显示月度统计信息
+        if (recordCount > 0) {
+            float avgPleasureLevel = (float) pleasureLevelSum / recordCount;
+            summaryTextView.setText(getString(R.string.monthly_summary_format,
+                    totalCount, avgPleasureLevel));
+        } else {
+            summaryTextView.setText(R.string.no_record_found);
+        }
     }
     private void initNotificationPermissionLauncher() {
         requestNotificationPermissionLauncher = registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {

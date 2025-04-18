@@ -18,6 +18,10 @@
     <string name="record_details_format">次数: %1$d, 爽感: %2$s</string>
     <string name="爽">爽</string> <!-- %2$d 改为 %2$s 用于显示文字 -->
 
+    <!-- 月视图优化相关字符串 -->
+    <string name="month_records_title">本月记录</string>
+    <string name="monthly_summary_format">本月总次数: %1$d, 平均爽感: %2$.1f</string>
+
     <!-- 爽感等级选项 (用描述性词语替换) -->
     <string-array name="pleasure_levels">
         <item>轻微</item>

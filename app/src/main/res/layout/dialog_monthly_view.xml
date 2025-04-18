@@ -3,20 +3,40 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:padding="8dp">
 
+    <!-- 减小日历控件的高度 -->
     <CalendarView
         android:id="@+id/calendarViewDialog"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content" />
+        android:layout_height="280dp"
+        android:dateTextAppearance="@style/CalendarDateText"
+        android:weekDayTextAppearance="@style/CalendarWeekText" />
 
+    <!-- 标题：本月记录 -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/month_records_title"
+        android:textStyle="bold"
+        android:textSize="16sp" />
+
+    <!-- 替换单个TextView为RecyclerView来显示多条消息 -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/monthRecordsRecyclerView"
+        android:layout_width="match_parent"
+        android:layout_height="140dp"
+        android:layout_marginTop="4dp" />
+
+    <!-- 选中日期的详细信息 -->
     <TextView
         android:id="@+id/detailsTextViewDialog"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="8dp"
         android:gravity="center"
-        android:minHeight="48dp"
+        android:minHeight="32dp"
         android:textAppearance="@style/TextAppearance.MaterialComponents.Body1"
         android:text="@string/no_record_found" />
 
