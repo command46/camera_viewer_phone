@@ -1,848 +1,1192 @@
 package com.example.myapplication;
 
 import android.Manifest;
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.AnimatorSet;
+import android.animation.ObjectAnimator;
 import android.annotation.SuppressLint;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.graphics.Color; // 保留用于图表颜色设置
+import android.graphics.Color;
+import android.graphics.Point;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
+import android.text.TextUtils;
 import android.util.Log;
+import android.util.Patterns;
+import android.view.Display;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.AccelerateInterpolator;
+import android.view.animation.DecelerateInterpolator;
+import android.view.animation.LinearInterpolator;
+import android.view.animation.OvershootInterpolator;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
-import android.widget.CalendarView; // 保留用于对话框
-import android.widget.TextView; // 保留用于对话框
+import android.widget.Button;
+import android.widget.CalendarView;
+import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.ImageButton;
+import android.widget.ImageView;
+import android.widget.Spinner;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.EdgeToEdge;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.annotation.NonNull; // 保留以备将来使用
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
-import androidx.lifecycle.ViewModelProvider; // 引入 ViewModelProvider
 
-import com.example.myapplication.ToolData.RecordData; // 保留用于对话框数据类型
-import com.example.myapplication.databinding.ActivityMainBinding; // 引入 ViewBinding
-import com.example.myapplication.utils.AnimationHelper;
-import com.example.myapplication.utils.SensorHandler;
-import com.example.myapplication.utils.Utils; // 引入 Utils
-import com.example.myapplication.viewmodel.MainViewModel; // 引入 ViewModel
-
-import com.github.mikephil.charting.components.XAxis; // 图表库导入
-import com.github.mikephil.charting.components.YAxis; // 图表库导入
-import com.github.mikephil.charting.data.Entry; // 图表库导入
-import com.github.mikephil.charting.data.LineData; // 图表库导入
-import com.github.mikephil.charting.data.LineDataSet; // 图表库导入
-import com.github.mikephil.charting.interfaces.datasets.ILineDataSet; // 图表库导入
+import com.example.myapplication.ToolData.JsonDataStorage;
+import com.example.myapplication.ToolData.RecordData;
+import com.github.mikephil.charting.charts.LineChart;
+import com.github.mikephil.charting.components.Legend;
+import com.github.mikephil.charting.components.XAxis;
+import com.github.mikephil.charting.components.YAxis;
+import com.github.mikephil.charting.data.Entry;
+import com.github.mikephil.charting.data.LineData;
+import com.github.mikephil.charting.data.LineDataSet;
+import com.github.mikephil.charting.interfaces.datasets.ILineDataSet;
+import com.google.android.material.switchmaterial.SwitchMaterial;
 
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Random;
 
-/**
- * 应用的主活动界面。
- * 经过重构后，主要职责是：
- * 1. 管理 UI 元素的显示和基本交互。
- * 2. 初始化 ViewModel 和 Helper 类。
- * 3. 将用户操作委托给 ViewModel 处理。
- * 4. 观察 ViewModel 的 LiveData 并更新 UI。
- * 5. 处理 Android 系统相关的任务（生命周期、权限请求、广播接收）。
- * 6. 实现 Helper 类所需的回调接口 (如 SensorHandler.LightSensorListener)。
- */
-public class MainActivity extends AppCompatActivity implements SensorHandler.LightSensorListener {
+public class MainActivity extends AppCompatActivity implements SensorEventListener {
 
-    private static final String TAG = "MainActivity"; // 日志标签
-    // 权限请求码 (如果需要兼容旧版权限处理方式)
+    // SharedPreferences 相关常量
+    private static final String PREFS_NAME = "CameraServicePrefs";
+    private static final String KEY_IP_ADDRESS = "last_ip_address";
+    private static final String KEY_RESTART_SERVICE = "restart_service_flag";
+
+    // KEY_RETRY_COUNT 由 Service 内部管理，Activity 不需要知道
+
+    private static final String TAG = "MainActivity";
     private static final int CAMERA_PERMISSION_REQUEST_CODE = 100;
-    private static final int PERMISSION_REQUEST_CODE = 1001; // 其他权限组 (如果需要)
+    private static final int PERMISSION_REQUEST_CODE = 1001; // 用于其他权限组（如果需要）
 
-    // 使用 ViewBinding 来安全地访问视图，替代 findViewById
-    private ActivityMainBinding binding;
+    private final boolean StartCameraStreamService = true; // 默认启动 CameraStreamService
 
-    // ViewModel 实例，用于管理 UI 状态和业务逻辑
-    private MainViewModel viewModel;
+    private Button connectButton;
+    private EditText ipAddressEditText;
+    private String ipAddress; // 用于存储当前 Activity 中验证通过并用于启动服务的 IP 地址
+    private SharedPreferences sharedPreferences;
+    private SwitchMaterial CameraStreamServiceSwitch; // 重启开关
 
-    // Helper 类实例
-    private SensorHandler sensorHandler;   // 处理传感器逻辑
-    private AnimationHelper animationHelper; // 处理动画逻辑
 
-    // ActivityResultLauncher 用于处理权限请求结果 (推荐方式)
-    private ActivityResultLauncher<String> requestCameraPermissionLauncher;
-    private ActivityResultLauncher<String> requestNotificationPermissionLauncher;
-    // 标记是否在权限授予后需要启动服务 (处理权限请求的异步性)
-    private boolean pendingServiceStart = false;
+    // 传感器相关
+    private SensorManager sensorManager;
+    private Sensor lightSensor;
+    private TextView lightSensorTextView;
 
-    // 用于接收服务重试失败广播的接收器
-    private BroadcastReceiver retryFailureReceiver;
-    private IntentFilter retryFailureIntentFilter; // 广播过滤条件
+    // 图表相关
+    private LineChart lightChart;
 
-    // 日期格式化，主要用于月视图对话框
+    //计数器
+    private ImageButton decrementButton;
+    private ImageButton incrementButton;
+    private TextView counterTextView;
+
+    private Spinner pleasureLevelSpinner; // 新增：爽感等级 Spinner
+    private Button viewMonthlyDataButton; // 新增：查看月视图按钮
+
+    // --- 新增：用于日期格式化 ---
     private SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault());
+    private String todayDateKey = ""; // 今天日期的键
+
+    // 权限请求启动器
+    private ActivityResultLauncher<String> requestNotificationPermissionLauncher;
+    private boolean isNotificationPermissionGranted = false; // 跟踪通知权限状态
+
+    //用于接收服务重试失败的广播
+    private BroadcastReceiver retryFailureReceiver;
+    private IntentFilter retryFailureIntentFilter;
+
+    private final Random random = new Random(); // 用于生成随机效果
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        EdgeToEdge.enable(this); // 启用全屏边缘到边缘显示
-
-        // 初始化 ViewBinding
-        binding = ActivityMainBinding.inflate(getLayoutInflater());
-        // 设置 Activity 的内容视图为 ViewBinding 的根视图
-        setContentView(binding.getRoot());
-
-        // 处理窗口 Insets (边距)，避免系统栏遮挡内容
-        ViewCompat.setOnApplyWindowInsetsListener(binding.main, (v, insets) -> {
-             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
-             return insets;
+        EdgeToEdge.enable(this);
+        setContentView(R.layout.activity_main);
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
+            Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
+            return insets;
         });
+        // 获取今天的日期键
+        todayDateKey = dateFormat.format(Calendar.getInstance().getTime());
 
-        // 初始化 ViewModel
-        // ViewModelProvider 会确保在 Activity 重建时获取到同一个 ViewModel 实例
-        viewModel = new ViewModelProvider(this).get(MainViewModel.class);
+        // 初始化 SharedPreferences
+        sharedPreferences = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
 
-        // 初始化 Helper 类
-        // 将 this (Activity) 作为 LightSensorListener 传递给 SensorHandler
-        sensorHandler = new SensorHandler(this, this);
-        animationHelper = new AnimationHelper(this);
+        // 初始化传感器
+        initSensors();
 
-        // 初始化权限请求启动器
-        setupPermissionLaunchers();
+        // 初始化视图控件
+        initViews();
 
-        // 初始化 UI 组件 (如 Spinner 适配器)
-        setupUI();
-        // 设置视图的监听器
+        // 加载保存的设置 (IP 地址和重启开关状态)
+        loadSavedPreferences();
+
+        // 设置监听器
         setupListeners();
 
-        // 开始观察 ViewModel 中的 LiveData 数据变化
-        observeViewModel();
-
-        // 初始化光照强度图表 (可以考虑移到 ChartHelper)
+        // 初始化图表
         setupLightChart();
 
-        // 设置广播接收器
+        // 初始化通知权限请求
+        initNotificationPermissionLauncher();
+
+        // 检查通知权限
+        checkNotificationPermission();
+
+        // 初始化重试失败广播接收器
         setupRetryFailureReceiver();
 
-         // 检查通知权限 (应用启动时或需要时检查)
-        // 相机权限在点击连接按钮时检查
-        checkNotificationPermission();
-        Log.d(TAG,"MainActivity onCreate 完成");
+        // --- 新增：加载今天的数据到计数器和 Spinner ---
+        loadTodayData();
+    }
+    private void initSensors() {
+        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        lightSensor = sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT);
+        lightSensorTextView = findViewById(R.id.lightSensorTextView);
+        if (lightSensor == null) {
+            lightSensorTextView.setText(getString(R.string.lux).replace("-- lux", "不可用"));
+        }
     }
 
-    /**
-     * 初始化 UI 组件，例如设置 Spinner 的适配器。
-     */
-    private void setupUI() {
-        // 创建 Spinner 的 ArrayAdapter
+    private void initViews() {
+        CameraStreamServiceSwitch = findViewById(R.id.CameraStreamServiceSwitch);
+        connectButton = findViewById(R.id.connectButton);
+        ipAddressEditText = findViewById(R.id.ipAddressEditText);
+        lightChart = findViewById(R.id.lightChart);
+        decrementButton = findViewById(R.id.decrementButton);
+        incrementButton = findViewById(R.id.incrementButton);
+        counterTextView = findViewById(R.id.countTextView);
+        pleasureLevelSpinner = findViewById(R.id.pleasureLevelSpinner); // 初始化 Spinner
+        viewMonthlyDataButton = findViewById(R.id.viewMonthlyDataButton); // 初始化按钮
+    }
+
+    private void setupListeners() {
+        // 连接按钮
+        connectButton.setOnClickListener(v -> {
+            String currentIp = ipAddressEditText.getText().toString().trim();
+            boolean restartEnabled = CameraStreamServiceSwitch.isChecked();
+            if (isValidIpAddress(currentIp)) {
+                Toast.makeText(this, "请输入有效的 IP 地址", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            this.ipAddress = currentIp;
+            savePreferences(currentIp, restartEnabled);
+            checkPermissionsAndStartService();
+        });
+
+        // 重启开关
+        CameraStreamServiceSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            saveRestartPreference(isChecked);
+        });
+
+        // 减号按钮
+        decrementButton.setOnClickListener(v -> {
+            updateCounter(-1); // 调用更新计数器方法
+        });
+
+        // 加号按钮
+        incrementButton.setOnClickListener(v -> {
+            updateCounter(1); // 调用更新计数器方法
+        });
+
+        // 设置 Spinner 适配器
         ArrayAdapter<CharSequence> adapter = ArrayAdapter.createFromResource(this,
                 R.array.pleasure_levels, android.R.layout.simple_spinner_item);
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        // 将适配器设置给 Spinner (使用 ViewBinding)
-        binding.pleasureLevelSpinner.setAdapter(adapter);
-        Log.d(TAG,"Spinner 适配器设置完成");
-    }
+        pleasureLevelSpinner.setAdapter(adapter);
 
-    /**
-     * 统一设置所有视图的事件监听器。
-     * 将用户操作委托给 ViewModel 处理。
-     */
-    private void setupListeners() {
-        // 连接按钮点击事件
-        binding.connectButton.setOnClickListener(v -> {
-            Log.d(TAG,"连接按钮被点击");
-            // 获取 IP 输入框的文本
-            String currentIp = binding.ipAddressEditText.getText().toString().trim();
-            // 调用 ViewModel 的方法来处理连接尝试
-            viewModel.attemptConnection(currentIp);
-        });
-
-        // “失败时重启”开关状态变化事件
-        binding.CameraStreamServiceSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            Log.d(TAG,"重启开关状态改变: " + isChecked);
-            // 调用 ViewModel 保存新的开关状态
-            viewModel.saveRestartPreference(isChecked);
-        });
-
-        // 计数器减号按钮点击事件
-        binding.decrementButton.setOnClickListener(v -> {
-             Log.d(TAG,"减号按钮被点击");
-             // 调用 ViewModel 更新计数器 (-1)
-             viewModel.updateCounter(-1);
-        });
-        // 计数器加号按钮点击事件
-        binding.incrementButton.setOnClickListener(v -> {
-            Log.d(TAG,"加号按钮被点击");
-            // 调用 ViewModel 更新计数器 (+1)
-            viewModel.updateCounter(1);
-        });
-
-        // 爽感等级 Spinner 选择事件
-        binding.pleasureLevelSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+        // Spinner 选择监听器
+        pleasureLevelSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                // Spinner 的 position 是从 0 开始的，我们需要对应 1-5 的等级
-                int selectedLevel = position + 1;
-                 Log.d(TAG,"Spinner 选择变化，位置: " + position + ", 等级: " + selectedLevel);
-                 // 调用 ViewModel 设置新的爽感等级 (只有在等级变化时 ViewModel 内部才会处理)
-                 viewModel.setPleasureLevel(selectedLevel);
+                // 当用户选择新的爽感等级时，保存当前状态
+                saveCurrentState();
             }
             @Override
             public void onNothingSelected(AdapterView<?> parent) {
-                 // 用户没有选择任何项，通常无需处理
+                // 通常不需要处理
             }
         });
 
-        // “查看月视图”按钮点击事件
-        binding.viewMonthlyDataButton.setOnClickListener(v -> {
-            Log.d(TAG,"查看月视图按钮被点击");
-            // 显示月视图对话框
-            showMonthlyViewDialog();
-        });
-         Log.d(TAG,"所有监听器设置完成");
+        // 查看月视图按钮
+        viewMonthlyDataButton.setOnClickListener(v -> showMonthlyViewDialog());
     }
 
     /**
-     * 观察 ViewModel 中的 LiveData。
-     * 当 LiveData 的数据发生变化时，更新对应的 UI 元素。
+     * 更新计数器并保存状态
      */
-    private void observeViewModel() {
-        // 观察 IP 地址 LiveData
-        viewModel.ipAddress.observe(this, ip -> {
-            // 避免在用户输入时被 ViewModel 的初始加载覆盖
-            if (!binding.ipAddressEditText.hasFocus()) {
-                 binding.ipAddressEditText.setText(ip);
-                 Log.v(TAG,"观察到 IP 地址变化: " + ip);
-            }
-        });
-        // 观察重启开关状态 LiveData
-        viewModel.restartServiceEnabled.observe(this, enabled -> {
-             binding.CameraStreamServiceSwitch.setChecked(enabled);
-             Log.v(TAG,"观察到重启开关状态变化: " + enabled);
-        });
-        // 观察计数值 LiveData
-        viewModel.counter.observe(this, count -> {
-             binding.countTextView.setText(String.valueOf(count));
-             Log.v(TAG,"观察到计数值变化: " + count);
-        });
-        // 观察爽感等级 LiveData
-        viewModel.pleasureLevel.observe(this, level -> {
-            // 将等级 (1-5) 转换为 Spinner 的位置 (0-4)
-            int position = level - 1;
-             // 检查位置是否有效
-             if (position >= 0 && position < binding.pleasureLevelSpinner.getAdapter().getCount()) {
-                  // 只有当 Spinner 当前选择的位置与 LiveData 的值不同时才更新
-                  // 避免因代码设置 Spinner 值而再次触发 onItemSelected 监听器导致循环
-                 if (binding.pleasureLevelSpinner.getSelectedItemPosition() != position) {
-                      binding.pleasureLevelSpinner.setSelection(position);
-                      Log.v(TAG,"观察到爽感等级变化，更新 Spinner 位置: " + position);
-                 }
-             }
-        });
-
-        // 观察光照强度 LiveData
-        viewModel.lightLevel.observe(this, lux -> {
-            // 更新光照强度文本显示，格式化为一位小数
-            binding.lightSensorTextView.setText(getString(R.string.lux, String.format(Locale.getDefault(), "%.1f", lux)));
-            // 将新的光照强度值添加到图表中
-            addChartEntry(lux);
-            Log.v(TAG,"观察到光照强度变化: " + lux);
-        });
-
-        // 观察光线传感器可用状态 LiveData
-         viewModel.isLightSensorAvailable.observe(this, available -> {
-             if (!available) {
-                 // 如果传感器不可用，更新文本提示，并清空图表
-                 binding.lightSensorTextView.setText(getString(R.string.lux_unavailable)); // 使用 strings.xml 中定义的字符串
-                 binding.lightChart.clear(); // 清除图表数据
-                 binding.lightChart.invalidate(); // 刷新图表显示
-                 Log.w(TAG,"观察到光线传感器不可用");
-             }
-             // 可以选择性地在这里禁用图表的交互
-             binding.lightChart.setTouchEnabled(available);
-         });
-
-        // 观察 Toast 消息事件 LiveData
-        viewModel.toastMessage.observe(this, event -> {
-            // 使用 Event.getContentIfNotHandled() 确保消息只显示一次
-            String message = event.getContentIfNotHandled();
-            if (message != null) {
-                Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
-                Log.d(TAG,"观察到 Toast 事件: " + message);
-            }
-        });
-
-         // 观察播放动画事件 LiveData
-         viewModel.playAnimationEvent.observe(this, event -> {
-             // 确保事件未被处理过
-            if (event.getContentIfNotHandled() != null) {
-                Log.d(TAG,"观察到播放动画事件");
-                // 调用 AnimationHelper 播放动画
-                // 使用 counterTextView 作为动画效果的视觉锚点 (粒子从此位置散开)
-                animationHelper.playExplosionAnimation((ViewGroup) getWindow().getDecorView(), binding.countTextView);
-            }
-         });
-
-        // 观察启动服务事件 LiveData
-        viewModel.startServiceEvent.observe(this, event -> {
-            // 确保事件未被处理过，并且值为 true (表示要启动)
-            Boolean start = event.getContentIfNotHandled();
-             if (start != null && start) {
-                 Log.d(TAG,"观察到启动服务事件，开始检查权限并启动服务流程");
-                 // 调用方法检查权限并启动服务
-                 checkPermissionsAndStartService();
-             }
-        });
-         Log.d(TAG,"ViewModel 观察器设置完成");
-    }
-
-
-    // --- SensorHandler.LightSensorListener 接口实现 ---
-    /**
-     * 当 SensorHandler 检测到光照强度变化时调用此方法。
-     * @param lux 当前的光照强度值。
-     */
-    @Override
-    public void onLightLevelChanged(float lux) {
-        // 将获取到的光照强度值传递给 ViewModel 进行处理和状态更新
-        viewModel.updateLightLevel(lux);
-        // Log.v(TAG, "光线传感器回调: " + lux); // 可以取消注释以进行调试，但会产生大量日志
-    }
-
-    /**
-     * 当 SensorHandler 检测到光线传感器不可用时调用此方法。
-     */
-    @Override
-    public void onLightSensorUnavailable() {
-        Log.w(TAG,"光线传感器回调: 不可用");
-        // 通知 ViewModel 传感器状态变为不可用
-        viewModel.setLightSensorAvailable(false);
-    }
-
-    // --- 权限处理 ---
-
-    /**
-     * 初始化 ActivityResultLauncher 用于处理权限请求结果。
-     */
-    private void setupPermissionLaunchers() {
-         // 处理相机权限请求结果
-         requestCameraPermissionLauncher = registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
-             if (isGranted) {
-                 Log.i(TAG, "相机权限已授予。");
-                 // 如果之前因为等待相机权限而设置了 pendingServiceStart 标记，现在可以继续启动服务
-                 if (pendingServiceStart) {
-                      Log.d(TAG,"相机权限授予后，继续启动服务...");
-                      // 在启动服务前，最好再次确认通知权限（如果需要）是否也已授予
-                      checkNotificationPermissionAndProceed();
-                 }
-             } else {
-                 Log.w(TAG, "相机权限被拒绝。");
-                 Toast.makeText(this, "需要相机权限才能启动服务", Toast.LENGTH_SHORT).show();
-                 // 因为缺少必要权限，取消服务启动意图
-                 pendingServiceStart = false;
-             }
-         });
-
-        // 处理通知权限请求结果 (Android 13+)
-        requestNotificationPermissionLauncher = registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
-            if (isGranted) {
-                 Log.i(TAG, "通知权限已授予。");
-                 // 如果之前因为等待此权限而设置了 pendingServiceStart 标记，现在可以继续启动服务
-                 // （前提是相机权限也已经授予）
-                 if (pendingServiceStart && ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                     Log.d(TAG,"通知权限授予后，继续启动服务...");
-                     startCameraStreamService();
-                 }
-             } else {
-                 Log.w(TAG, "通知权限被拒绝。");
-                 // 可以显示一个对话框解释为什么需要这个权限
-                 showNotificationPermissionRationale();
-                 // 服务仍然可以尝试启动，但需要告知用户前台服务通知可能无法显示
-                 Toast.makeText(this, "缺少通知权限，前台服务可能无法正常运行", Toast.LENGTH_LONG).show();
-                  // 如果服务启动流程正在等待，并且相机权限已授予，则继续启动（但带有警告）
-                 if (pendingServiceStart && ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                      Log.d(TAG,"通知权限被拒绝，但仍尝试启动服务...");
-                      startCameraStreamService();
-                 }
-             }
-        });
-         Log.d(TAG,"权限请求启动器设置完成");
-    }
-
-    /**
-     * 检查相机和通知权限（如果需要），并在权限满足时启动服务。
-     * 如果缺少权限，则发起权限请求。
-     */
-    private void checkPermissionsAndStartService() {
-        Log.d(TAG,"检查权限并准备启动服务...");
-        // 设置标记，表示我们打算启动服务，权限请求的回调会检查这个标记
-        pendingServiceStart = true;
-
-        // 检查相机权限
-        boolean cameraGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
-        // 检查通知权限 (仅限 Android 13 及以上)
-        boolean notificationGranted = true; // 默认对于 Android 13 以下为 true
-         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-             notificationGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
-             Log.d(TAG,"Android 13+: 通知权限状态: " + notificationGranted);
-         } else {
-              Log.d(TAG,"Android 13 以下: 通知权限无需请求。");
-         }
-
-         // 情况分析：
-         if (cameraGranted && notificationGranted) {
-             // 1. 所有必需权限都已授予
-             Log.i(TAG, "所有必需权限已授予，直接启动服务。");
-             startCameraStreamService();
-         } else if (!cameraGranted) {
-             // 2. 缺少相机权限 (最优先请求)
-             Log.i(TAG, "缺少相机权限，正在请求...");
-             requestCameraPermissionLauncher.launch(Manifest.permission.CAMERA);
-             // 通知权限将在相机权限授予后检查 (见 requestCameraPermissionLauncher 回调)
-         } else { // cameraGranted is true, but notificationGranted is false (on Android 13+)
-             // 3. 缺少通知权限 (相机权限已有)
-             Log.i(TAG, "缺少通知权限 (Android 13+)，正在检查/请求...");
-             checkNotificationPermission(); // 这个方法会处理请求或显示理由
-         }
-    }
-
-    /**
-     * 专门检查通知权限 (Android 13+)。
-     * 如果未授予，则根据情况请求权限或显示请求理由对话框。
-     * 如果已授予，并且服务启动流程正在等待此权限，则继续启动服务。
-     */
-     private void checkNotificationPermission() {
-         // 只在 Android 13 (TIRAMISU) 及以上版本检查
-         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-             // 检查权限状态
-             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                  Log.d(TAG,"通知权限尚未授予 (Android 13+)。");
-                  // 检查是否应该显示请求理由 (用户之前拒绝过但未选择“不再询问”)
-                  if (shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)) {
-                     // 显示解释对话框
-                      Log.d(TAG,"需要显示通知权限请求理由。");
-                     showNotificationPermissionRationale();
-                 } else {
-                     // 直接请求权限
-                      Log.d(TAG,"发起通知权限请求...");
-                      requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
-                 }
-             } else {
-                  // 权限已经授予
-                  Log.d(TAG,"通知权限已授予 (Android 13+)。");
-                  // 如果服务启动流程正在等待通知权限（并且相机权限也已满足），则继续
-                  checkNotificationPermissionAndProceed();
-             }
-         } else {
-              // Android 13 以下无需处理通知权限
-              Log.d(TAG,"Android 13 以下，无需检查通知权限。");
-              // 如果服务启动流程仅因版本判断而“等待”通知权限，现在可以继续了（只要相机权限满足）
-              if (pendingServiceStart && ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                   startCameraStreamService();
-              }
-         }
-     }
-
-      /**
-       * 在相机权限或其他前置条件满足后，再次确认通知权限（如果需要）是否满足，
-       * 如果都满足，则继续启动服务。
-       */
-     private void checkNotificationPermissionAndProceed() {
-         boolean canProceed = true;
-         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-              if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                  Log.w(TAG,"准备启动服务，但通知权限仍未授予 (Android 13+)。");
-                  // 如果需要严格要求通知权限才能启动服务，可以在这里 return 或 再次请求/提示
-                  // 当前逻辑是：即使通知权限没有，也尝试启动，但在请求时已给出提示
-                  // canProceed = false; // 取消注释则强制要求通知权限
-                  // 再次请求可能导致循环，最好由用户手动在设置中开启
-                  checkNotificationPermission(); // 再次检查，可能会显示 rationale 或请求
-                  canProceed = false; // 再次检查后，不立即启动，等待回调
-              }
-         }
-
-         if (canProceed && pendingServiceStart) {
-             Log.d(TAG,"所有权限检查通过，正式启动服务。");
-             startCameraStreamService();
-         } else if (pendingServiceStart) {
-              Log.d(TAG,"权限检查未完全通过或服务启动意图已取消，不启动服务。");
-              // pendingServiceStart = false; // 可选：如果 checkNotificationPermission() 再次发起请求，这里暂时不取消意图
-         }
-     }
-
-    /**
-     * 显示一个对话框，向用户解释为什么需要通知权限。
-     * (仅在 Android 13+ 且 shouldShowRequestPermissionRationale 返回 true 时调用)
-     */
-    private void showNotificationPermissionRationale() {
-        Log.d(TAG,"显示通知权限请求理由对话框。");
-        new AlertDialog.Builder(this)
-                .setTitle("需要通知权限")
-                .setMessage("应用需要此权限来显示正在运行的服务状态，这对于前台服务是必要的，否则服务可能无法正常启动或被系统意外终止。")
-                .setPositiveButton("好的", (dialog, which) -> {
-                    // 用户点击“好的”，再次发起权限请求
-                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                         Log.d(TAG,"用户同意再次请求通知权限。");
-                         requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
-                      }
-                 })
-                .setNegativeButton("取消", (dialog, which) -> {
-                     // 用户点击“取消”，提示用户服务可能受影响
-                     Log.w(TAG,"用户拒绝在理由对话框中授予通知权限。");
-                     Toast.makeText(this, "未授予通知权限，服务可能无法正常显示状态", Toast.LENGTH_SHORT).show();
-                     // 如果服务启动流程正在等待，并且相机权限已授予，则继续启动（但带有警告）
-                     if (pendingServiceStart && ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                          Log.d(TAG,"用户取消通知权限，但仍尝试启动服务...");
-                          startCameraStreamService();
-                     }
-                 })
-                .show();
-    }
-
-
-    // --- 服务启动 ---
-
-    /**
-     * 负责创建 Intent 并启动 CameraStreamService。
-     * 此方法应在所有必需权限都已授予后调用。
-     */
-    private void startCameraStreamService() {
-         // 再次检查 pendingServiceStart 标记，确保启动意图仍然有效
-         if (!pendingServiceStart) {
-             Log.w(TAG,"尝试启动服务，但 pendingServiceStart 为 false，可能是权限被拒绝或流程已取消。");
-             return;
-         }
-         // 重置标记，表示本次启动流程即将完成（或失败）
-         pendingServiceStart = false;
-
-         // 从 ViewModel 获取最新的 IP 地址和重启设置状态
-         String ip = viewModel.ipAddress.getValue();
-         Boolean restart = viewModel.restartServiceEnabled.getValue();
-
-         // 对获取的值进行最终校验
-         if (ip == null || !Utils.isValidIpAddress(ip)) { // 使用 Utils 校验 IP
-             Toast.makeText(this, "无法启动服务：IP 地址无效", Toast.LENGTH_SHORT).show();
-             Log.e(TAG,"启动服务失败：从 ViewModel 获取的 IP 地址无效或为空。");
-             return;
-         }
-         if (restart == null) restart = true; // 如果 LiveData 尚未初始化，给一个默认值
-
-        // 创建启动服务的 Intent
-        Intent serviceIntent = new Intent(this, CameraStreamService.class);
-        // 将 IP 地址和重启设置作为 extra 数据传递给 Service
-        serviceIntent.putExtra("ip_address", ip);
-        serviceIntent.putExtra("restart_on_failure", restart);
-        // 不再传递 retry_count，让 Service 内部管理重试逻辑
-
+    private void updateCounter(int change) {
+        int currentCount = 0;
         try {
-            // 使用 ContextCompat.startForegroundService 启动前台服务
-            // 这会告诉系统应用打算运行一个前台服务，即使应用在后台也允许启动
-            ContextCompat.startForegroundService(this, serviceIntent);
-            Log.i(TAG, "尝试启动 CameraStreamService - IP: " + ip + ", 重启: " + restart);
-            Toast.makeText(this, "正在启动连接服务...", Toast.LENGTH_SHORT).show();
-        } catch (Exception e) {
-            // 捕获启动服务时可能发生的异常 (例如，在某些极端情况下，即使调用了 startForegroundService 也可能失败)
-            Log.e(TAG, "启动前台服务失败", e);
-             Toast.makeText(this, "启动服务时发生错误: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            currentCount = Integer.parseInt(counterTextView.getText().toString());
+        } catch (NumberFormatException e) {
+            Log.e(TAG, "无法解析计数器文本: " + counterTextView.getText(), e);
+            // 可以选择重置为 0 或其他处理
         }
+
+        int newCount = currentCount + change;
+        if (newCount < 0) { // 不允许小于 0
+            newCount = 0;
+        }
+        counterTextView.setText(String.valueOf(newCount));
+        // --- 新增：只有在增加计数时才播放动画 ---
+        if (newCount > 0) { // 只有实际增加了才播放（防止从0到0播放）
+            playExplosionAnimation();
+        }
+        saveCurrentState();
     }
-
-
-    // --- 广播接收器处理 ---
-
     /**
-     * 初始化用于接收服务重试失败通知的 BroadcastReceiver。
+     * 获取当前状态（次数、爽感）并保存到 JSON
      */
-    private void setupRetryFailureReceiver() {
-        retryFailureReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                // 确认接收到的广播是我们期望的 Action
-                if (CameraStreamService.ACTION_SHOW_RETRY_FAILURE_DIALOG.equals(intent.getAction())) {
-                    Log.w(TAG, "接收到服务重试失败的广播通知。");
-                    // 显示提示对话框
-                    showRetryFailedDialog();
-                }
+    private void saveCurrentState() {
+        // 仅保存今天的数据
+        int currentCount = 0;
+        try {
+            currentCount = Integer.parseInt(counterTextView.getText().toString());
+        } catch (NumberFormatException e) {
+            Log.e(TAG, "保存状态时无法解析计数器文本: " + counterTextView.getText(), e);
+            // 可以根据需要决定是否继续保存，或者使用默认值 0
+        }
+
+        int selectedPleasureLevel = 1; // 默认值
+        // Spinner position 是从 0 开始的，我们需要 1-5
+        if (pleasureLevelSpinner.getSelectedItem() != null) {
+            try {
+                selectedPleasureLevel = Integer.parseInt(pleasureLevelSpinner.getSelectedItem().toString());
+            } catch (NumberFormatException e) {
+                Log.e(TAG, "保存状态时无法解析 Spinner 值: " + pleasureLevelSpinner.getSelectedItem(), e);
+                selectedPleasureLevel = pleasureLevelSpinner.getSelectedItemPosition() + 1; // 尝试使用位置
+                if(selectedPleasureLevel < 1 || selectedPleasureLevel > 5) selectedPleasureLevel = 1; // 再次检查
             }
-        };
-        // 创建 IntentFilter，只接收来自 CameraStreamService 的特定 Action
-        retryFailureIntentFilter = new IntentFilter(CameraStreamService.ACTION_SHOW_RETRY_FAILURE_DIALOG);
-        Log.d(TAG,"重试失败广播接收器设置完成");
-    }
+        }
 
+        Log.d(TAG, "正在保存状态 - 日期: " + todayDateKey + ", 次数: " + currentCount + ", 爽感: " + selectedPleasureLevel);
+        JsonDataStorage.saveRecord(this, todayDateKey, currentCount, selectedPleasureLevel);
+    }
     /**
-     * 显示一个对话框，告知用户服务自动重连失败。
-     * 提供“知道了”和“尝试重连”选项。
+     * 加载今天的数据（如果存在）并更新 UI
      */
-    private void showRetryFailedDialog() {
-        // 确保 Activity 仍然处于活跃状态，避免在已销毁的 Activity 上显示对话框
-        if (!isFinishing() && !isDestroyed()) {
-            // 确保在 UI 线程执行对话框的显示
-            runOnUiThread(() -> {
-                 Log.d(TAG,"显示重试失败对话框。");
-                new AlertDialog.Builder(MainActivity.this)
-                    .setTitle("连接失败")
-                    .setMessage("尝试自动重新连接服务失败。请检查网络连接和服务器状态，然后尝试手动连接。")
-                    .setPositiveButton("知道了", (dialog, which) -> dialog.dismiss()) // 关闭对话框
-                    .setNegativeButton("尝试重连", (dialog, which) -> {
-                         // 用户点击“尝试重连”，触发 ViewModel 的连接逻辑
-                        Log.d(TAG,"用户在重试失败对话框中点击了“尝试重连”。");
-                        String currentIp = binding.ipAddressEditText.getText().toString().trim();
-                         viewModel.attemptConnection(currentIp); // 委托给 ViewModel
-                         dialog.dismiss();
-                    })
-                    .setCancelable(false) // 不允许点击对话框外部区域取消
-                    .show();
-            });
+    private void loadTodayData() {
+        RecordData todayRecord = JsonDataStorage.getRecord(this, todayDateKey);
+        if (todayRecord != null) {
+            Log.d(TAG, "找到今天的数据: 次数=" + todayRecord.getCount() + ", 爽感=" + todayRecord.getPleasureLevel());
+            counterTextView.setText(String.valueOf(todayRecord.getCount()));
+            // 设置 Spinner 的选中项 (爽感是 1-5, Spinner 位置是 0-4)
+            int spinnerPosition = todayRecord.getPleasureLevel() - 1;
+            if (spinnerPosition >= 0 && spinnerPosition < pleasureLevelSpinner.getAdapter().getCount()) {
+                pleasureLevelSpinner.setSelection(spinnerPosition);
+            } else {
+                pleasureLevelSpinner.setSelection(0); // 默认选第一个
+            }
         } else {
-             Log.w(TAG,"尝试显示重试失败对话框，但 Activity 状态不适合显示 (isFinishing=" + isFinishing() + ", isDestroyed=" + isDestroyed() + ")");
+            Log.d(TAG, "今天 ("+ todayDateKey +") 没有找到记录，使用默认值。");
+            // 如果没有记录，保持 XML 中的默认值或显式设置为 0 和默认爽感
+            counterTextView.setText("0");
+            pleasureLevelSpinner.setSelection(0); // 默认选第一个 (即等级 1)
         }
     }
-
-    // --- 图表设置和更新 (示例，可移至 ChartHelper) ---
-
     /**
-     * 初始化光照强度折线图的基本设置。
+     * 显示月视图对话框
      */
-    private void setupLightChart() {
-        Log.d(TAG,"设置光照强度图表...");
-        // 基本配置
-        binding.lightChart.getDescription().setEnabled(false); // 禁用描述文本
-        binding.lightChart.setTouchEnabled(true);      // 启用触摸交互
-        binding.lightChart.setDragEnabled(true);       // 启用拖拽
-        binding.lightChart.setScaleEnabled(true);      // 启用缩放
-        binding.lightChart.setPinchZoom(true);       // 启用双指缩放
-        binding.lightChart.setBackgroundColor(Color.DKGRAY); // 设置背景色 (示例)
-        binding.lightChart.setDrawGridBackground(false); // 不绘制网格背景
-
-        // X 轴设置
-        XAxis xAxis = binding.lightChart.getXAxis();
-        xAxis.setPosition(XAxis.XAxisPosition.BOTTOM); // X轴在底部
-        xAxis.setDrawGridLines(false);                // 不绘制X轴网格线
-        xAxis.setTextColor(Color.WHITE);              // X轴文字颜色
-        // xAxis.setAxisMinimum(0f); // 可以设置X轴最小值
-        // xAxis.setValueFormatter(...); // 可以设置X轴标签格式 (例如时间戳)
-
-        // Y 轴 (左侧) 设置
-        YAxis leftAxis = binding.lightChart.getAxisLeft();
-        leftAxis.setDrawGridLines(true);                 // 绘制Y轴网格线
-        leftAxis.setTextColor(Color.WHITE);              // Y轴文字颜色
-        leftAxis.setAxisMinimum(0f);                   // Y轴最小值通常为0 (光照强度)
-        // leftAxis.setAxisMaximum(...); // 可以设置Y轴最大值
-
-        // 禁用右侧 Y 轴
-        binding.lightChart.getAxisRight().setEnabled(false);
-
-        // 创建空的 LineData 并设置给图表
-        LineData data = new LineData();
-        binding.lightChart.setData(data);
-        binding.lightChart.invalidate(); // 刷新图表
-        Log.d(TAG,"图表设置完成");
-    }
-
-    /**
-     * 向光照强度图表中添加一个新的数据点。
-     * @param luxValue 新的光照强度值。
-     */
-    private void addChartEntry(float luxValue) {
-        // 获取图表现有的 LineData 对象
-        LineData data = binding.lightChart.getData();
-
-        if (data != null) {
-            // 获取第一个数据集 (ILineDataSet)，如果没有则创建
-            ILineDataSet set = data.getDataSetByIndex(0);
-            if (set == null) {
-                set = createSet(); // 创建新的数据集
-                data.addDataSet(set); // 将新数据集添加到 LineData 中
-            }
-
-            // 添加新的数据点 Entry
-            // X 值使用数据集中现有的点数作为索引，实现时间序列效果
-            // Y 值是传入的光照强度值
-            data.addEntry(new Entry(set.getEntryCount(), luxValue), 0); // 0 是数据集的索引
-
-            // 通知 LineData 数据已发生变化
-            data.notifyDataChanged();
-
-            // 通知图表数据已发生变化，需要重绘
-            binding.lightChart.notifyDataSetChanged();
-
-            // 限制图表可见的 X 轴范围，避免显示过多的数据点导致性能下降或显示混乱
-            binding.lightChart.setVisibleXRangeMaximum(100); // 最多显示最近的 100 个点
-
-            // (可选) 自动滚动图表，使最新的数据点始终可见
-            binding.lightChart.moveViewToX(data.getEntryCount());
-
-            // Log.v(TAG, "图表添加新数据点: (" + (set.getEntryCount()-1) + ", " + luxValue + ")"); // Debugging log
-        }
-    }
-
-    /**
-     * 创建并配置一个新的 LineDataSet (数据集) 用于图表。
-     * @return 配置好的 LineDataSet 对象。
-     */
-    private LineDataSet createSet() {
-        // 创建数据集，初始没有数据，设置标签 "光照强度 (lux)"
-        LineDataSet set = new LineDataSet(null, "光照强度 (lux)");
-        set.setAxisDependency(YAxis.AxisDependency.LEFT); // 数据依赖左侧 Y 轴
-        set.setColor(Color.CYAN);              // 折线颜色
-        set.setCircleColor(Color.WHITE);        // 数据点圆圈颜色
-        set.setLineWidth(2f);                 // 折线宽度
-        set.setCircleRadius(3f);              // 数据点圆圈半径
-        set.setFillAlpha(65);                 // 填充区域透明度
-        set.setFillColor(Color.CYAN);         // 填充区域颜色
-        set.setHighLightColor(Color.rgb(244, 117, 117)); // 点击高亮线颜色
-        set.setValueTextColor(Color.WHITE);    // 数据点上的文本颜色 (如果显示的话)
-        set.setValueTextSize(9f);             // 数据点上的文本大小
-        set.setDrawValues(false);             // 不在数据点上绘制具体数值
-        set.setDrawCircles(false);             // 不绘制数据点圆圈 (可选，优化性能)
-        set.setMode(LineDataSet.Mode.CUBIC_BEZIER); // 使用平滑的曲线模式
-        set.setDrawFilled(true);              // 启用填充区域绘制
-        Log.d(TAG,"创建了新的图表数据集 (LineDataSet)");
-        return set;
-    }
-
-
-     // --- 月视图对话框 ---
-    /**
-     * 显示包含日历和记录详情的月视图对话框。
-     */
-    @SuppressLint("StringFormatMatches") // 抑制 getString 格式化参数的 Lint 警告
+    @SuppressLint("StringFormatMatches")
     private void showMonthlyViewDialog() {
-        Log.d(TAG,"显示月视图对话框...");
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         LayoutInflater inflater = this.getLayoutInflater();
-        // 加载对话框布局
-        // TODO: 如果dialog_monthly_view.xml使用了ViewBinding，应该用 DialogMonthlyViewBinding.inflate(inflater)
         View dialogView = inflater.inflate(R.layout.dialog_monthly_view, null);
-        builder.setView(dialogView); // 设置对话框视图
-        builder.setTitle(R.string.monthly_view_title); // 设置对话框标题
+        builder.setView(dialogView);
+        builder.setTitle(R.string.monthly_view_title);
 
-        // 获取对话框中的视图控件
         CalendarView calendarView = dialogView.findViewById(R.id.calendarViewDialog);
         TextView detailsTextView = dialogView.findViewById(R.id.detailsTextViewDialog);
 
-        // 从 ViewModel 获取所有记录数据 (ViewModel 从 JsonDataStorage 获取)
-        final Map<String, RecordData> allRecords = viewModel.getAllRecords();
-        Log.d(TAG,"从 ViewModel 获取到 " + (allRecords != null ? allRecords.size() : 0) + " 条记录用于月视图");
+        // 获取所有记录用于查找
+        final Map<String, RecordData> allRecords = JsonDataStorage.getAllRecords(this);
 
-        // 设置日历日期选择监听器
         calendarView.setOnDateChangeListener((view, year, month, dayOfMonth) -> {
-            // month 是从 0 开始的，需要加 1 才能得到实际月份
+            // 月份 month 是从 0 开始的，需要加 1
             Calendar selectedCalendar = Calendar.getInstance();
-            selectedCalendar.set(year, month, dayOfMonth); // 设置选中的年月日
-            // 将选中日期格式化为与存储键一致的格式 "yyyy-MM-dd"
+            selectedCalendar.set(year, month, dayOfMonth);
             String selectedDateKey = dateFormat.format(selectedCalendar.getTime());
-            Log.d(TAG,"日历日期变化: " + selectedDateKey);
 
-            // 从所有记录中查找选中日期的数据
             RecordData selectedRecord = allRecords.get(selectedDateKey);
-            // 根据是否找到记录，更新详情 TextView 的内容
             if (selectedRecord != null) {
                 detailsTextView.setText(getString(R.string.record_details_format,
                         selectedRecord.getCount(), selectedRecord.getPleasureLevel()));
-                Log.d(TAG,"找到记录: 次数=" + selectedRecord.getCount() + ", 爽感=" + selectedRecord.getPleasureLevel());
             } else {
-                detailsTextView.setText(R.string.no_record_found); // 使用 strings.xml 中的字符串
-                Log.d(TAG,"未找到记录");
+                detailsTextView.setText(R.string.no_record_found);
             }
         });
 
-        // 设置对话框的“关闭”按钮
+        // 设置对话框关闭按钮
         builder.setPositiveButton(R.string.close, (dialog, which) -> dialog.dismiss());
 
-        // 创建并显示对话框
         AlertDialog dialog = builder.create();
         dialog.show();
 
-        // --- (可选) 初始化对话框时显示当天的数据 ---
-        // 获取当前时间戳
+        // --- (可选) 初始化时显示当天的信息 ---
+        // 触发一次当天的日期改变事件来显示初始信息
         long initialMillis = Calendar.getInstance().getTimeInMillis();
-        // 将日历视图设置到今天 (最后两个参数控制是否动画和是否触发监听器，这里不触发)
-        calendarView.setDate(initialMillis, false, false);
-        // 手动获取今天的数据并显示
+        calendarView.setDate(initialMillis, false, true); // 设置日历到今天
         Calendar initialCalendar = Calendar.getInstance();
         initialCalendar.setTimeInMillis(initialMillis);
         String initialDateKey = dateFormat.format(initialCalendar.getTime());
         RecordData initialRecord = allRecords.get(initialDateKey);
         if (initialRecord != null) {
-             detailsTextView.setText(getString(R.string.record_details_format,
-                     initialRecord.getCount(), initialRecord.getPleasureLevel()));
-         } else {
-             detailsTextView.setText(R.string.no_record_found);
-         }
-        Log.d(TAG,"月视图对话框已初始化并显示当天数据");
+            detailsTextView.setText(getString(R.string.record_details_format,
+                    initialRecord.getCount(), initialRecord.getPleasureLevel()));
+        } else {
+            detailsTextView.setText(R.string.no_record_found);
+        }
         // --- 结束可选部分 ---
     }
+    private void initNotificationPermissionLauncher() {
+        requestNotificationPermissionLauncher = registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
+            if (isGranted) {
+                isNotificationPermissionGranted = true;
+                Log.i(TAG, "通知权限已授予。");
+                checkPermissionsAndStartService();
+            } else {
+                isNotificationPermissionGranted = false;
+                Log.w(TAG, "通知权限被拒绝。");
+                showNotificationPermissionRationale();
+                Toast.makeText(this,"缺少通知权限，前台服务可能无法正常启动或显示通知", Toast.LENGTH_LONG).show();
+            }
+        });
+    }
 
-    // --- Android Activity 生命周期方法 ---
 
-    @SuppressLint("UnspecifiedRegisterReceiverFlag") // 抑制 Android 14 对注册 Receiver 的 Lint 警告
+    /**
+     * 播放全屏爆炸动画、粒子、冲击波和爱心效果 (浮夸版)
+     */
+    private void playExplosionAnimation() {
+        final ViewGroup rootView = (ViewGroup) getWindow().getDecorView();
+        if (rootView.findViewById(R.id.explosionOverlayRoot) != null) {
+            Log.w(TAG, "动画已在进行中，忽略此次触发");
+            return;
+        }
+
+        final View overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_explosion, rootView, false);
+        final FrameLayout overlayRoot = overlayView.findViewById(R.id.explosionOverlayRoot);
+        final TextView explosionText = overlayView.findViewById(R.id.explosionTextView);
+        final ImageView shockwaveImageView = overlayView.findViewById(R.id.shockwaveImageView); // 获取冲击波 ImageView
+
+        rootView.addView(overlayView);
+
+        long textAnimDuration = 800;       // "爽"字动画时长
+        long textAppearDelay = 100;
+        long particleAnimBaseDuration = 1500; // 粒子动画基础时长
+        long shockwaveDelay = textAnimDuration / 2 + textAppearDelay; // 冲击波在"爽"字放大一半时开始
+        long shockwaveDuration = 1000;     // 冲击波动画时长
+        long heartStartDelay = shockwaveDelay + shockwaveDuration / 3; // 冲击波扩散后开始爱心
+        long heartAnimBaseDuration = 2500; // 爱心动画基础时长 (更长)
+        long maxParticleDuration = (long)(particleAnimBaseDuration * 1.3);
+        long maxHeartDuration = (long)(heartAnimBaseDuration * 1.3);
+
+        // --- 调整覆盖层移除延迟，需要覆盖所有动画 ---
+        long overlayRemovalDelay = Math.max(shockwaveDelay + shockwaveDuration, heartStartDelay + maxHeartDuration) + 300;
+
+        // 1. 背景层动画 (淡入，保持粉色更久)
+        overlayRoot.setBackgroundColor(Color.TRANSPARENT); // 初始背景透明，靠冲击波上色
+        ObjectAnimator bgFadeIn = ObjectAnimator.ofFloat(overlayRoot, "alpha", 0f, 0.6f); // 淡入到一定透明度
+        bgFadeIn.setDuration(shockwaveDelay + shockwaveDuration); // 背景淡入持续到冲击波结束
+        bgFadeIn.setInterpolator(new DecelerateInterpolator());
+
+        ObjectAnimator bgFadeOut = ObjectAnimator.ofFloat(overlayRoot, "alpha", 0.6f, 0f);
+        bgFadeOut.setStartDelay(shockwaveDelay + shockwaveDuration); // 冲击波结束后开始淡出
+        bgFadeOut.setDuration(maxHeartDuration); // 淡出持续时间覆盖爱心动画
+        bgFadeOut.setInterpolator(new AccelerateInterpolator());
+
+        AnimatorSet bgSet = new AnimatorSet();
+        bgSet.playSequentially(bgFadeIn, bgFadeOut); // 顺序播放淡入淡出
+        // bgSet.start(); // 背景动画由冲击波触发或独立启动
+
+        // 2. "爽" 字动画 (结束后触发粒子)
+        explosionText.animate()
+                .setStartDelay(textAppearDelay)
+                .alpha(1f)
+                .scaleX(1.5f)
+                .scaleY(1.5f)
+                .setDuration(textAnimDuration)
+                .setInterpolator(new OvershootInterpolator(2f))
+                .setListener(new AnimatorListenerAdapter() {
+                    @Override
+                    public void onAnimationEnd(Animator animation) { // 改为 onAnimationEnd
+                        explosionText.setVisibility(View.GONE);
+                        // 触发粒子效果
+                        createAndAnimateParticles(explosionText, overlayRoot, particleAnimBaseDuration);
+                    }
+                })
+                .start();
+
+        // 3. 粉色冲击波动画 (延迟启动)
+        overlayRoot.postDelayed(() -> {
+            startShockwaveAnimation(shockwaveImageView, overlayRoot, shockwaveDuration);
+            // 在冲击波开始时，也启动背景的动画，或者在此之前就启动
+            if (!bgSet.isStarted()) bgSet.start();
+        }, shockwaveDelay);
+
+
+        // 4. 爱心喷泉动画 (更晚延迟启动)
+        overlayRoot.postDelayed(() -> {
+            createAndAnimateHearts(overlayRoot, heartAnimBaseDuration);
+        }, heartStartDelay);
+
+
+        // 5. 延迟移除整个覆盖层
+        rootView.postDelayed(() -> {
+            View overlayToRemove = rootView.findViewById(R.id.explosionOverlayRoot);
+            if (overlayToRemove != null && overlayToRemove.getParent() instanceof ViewGroup) {
+                ((ViewGroup)overlayToRemove.getParent()).removeView(overlayToRemove);
+                Log.d(TAG,"浮夸动画覆盖层已移除 (延迟)");
+            } else {
+                Log.w(TAG,"尝试移除覆盖层，但未找到或已移除");
+            }
+        }, overlayRemovalDelay);
+
+        Log.d(TAG,"开始播放浮夸版爆炸动画 (粒子+冲击波+爱心)");
+    }
+
+    /**
+     * 启动粉色冲击波动画
+     */
+    private void startShockwaveAnimation(ImageView shockwaveView, ViewGroup container, long duration) {
+        if (shockwaveView == null) return;
+
+        shockwaveView.setVisibility(View.VISIBLE);
+        shockwaveView.setAlpha(0.8f); // 设置初始透明度 (不需要全不透明)
+        shockwaveView.setScaleX(0.1f);
+        shockwaveView.setScaleY(0.1f);
+
+        // 获取容器大小，冲击波放大到能覆盖容器
+        float maxScale = Math.max(container.getWidth(), container.getHeight()) * 1.5f; // 放大到比容器还大一点
+
+        AnimatorSet shockwaveSet = new AnimatorSet();
+        ObjectAnimator scaleX = ObjectAnimator.ofFloat(shockwaveView, "scaleX", 0.1f, maxScale);
+        ObjectAnimator scaleY = ObjectAnimator.ofFloat(shockwaveView, "scaleY", 0.1f, maxScale);
+        ObjectAnimator alpha = ObjectAnimator.ofFloat(shockwaveView, "alpha", 0.8f, 0f); // 放大同时淡出
+
+        shockwaveSet.playTogether(scaleX, scaleY, alpha);
+        shockwaveSet.setDuration(duration);
+        shockwaveSet.setInterpolator(new AccelerateInterpolator(1.5f)); // 加速扩散
+        shockwaveSet.addListener(new AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(Animator animation) {
+                shockwaveView.setVisibility(View.GONE); // 动画结束隐藏
+                // 可以同时给 overlayRoot 上个色
+                // container.setBackgroundColor(Color.parseColor("#33FFC0CB")); // 设置一个淡淡的粉色背景
+            }
+        });
+        shockwaveSet.start();
+        Log.d(TAG, "冲击波动画开始");
+    }
+
+    /**
+     * 创建并动画化爱心喷泉效果
+     */
+    private void createAndAnimateHearts(ViewGroup container, long baseDuration) {
+        if (container == null) return;
+
+        int heartCount = 100; // 爱心数量
+        int minHeartSize = dpToPx(15);
+        int maxHeartSize = dpToPx(35);
+        long maxStaggerDelay = 800; // 爱心出现的时间更分散
+
+        // 获取容器尺寸
+        int containerWidth = container.getWidth();
+        int containerHeight = container.getHeight();
+        // 爱心起始位置在底部中心区域
+        float startXBase = containerWidth / 2f;
+        float startY = containerHeight - dpToPx(20); // 稍微离底部一点
+        float startXVariance = containerWidth * 0.1f; // X轴起始位置的随机范围
+
+        Log.d(TAG, "创建爱心喷泉");
+
+        for (int i = 0; i < heartCount; i++) {
+            // 创建爱心 ImageView
+            ImageView heart = new ImageView(this);
+            heart.setImageResource(R.drawable.ic_heart); // 设置爱心图片
+            // --- 随机设置爱心颜色 (粉色或白色) ---
+            heart.setColorFilter(random.nextBoolean() ? Color.WHITE : Color.parseColor("#FF69B4"));
+
+            int heartSize = random.nextInt(maxHeartSize - minHeartSize + 1) + minHeartSize;
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(heartSize, heartSize);
+            container.addView(heart, params);
+
+            // 设置随机起始位置
+            float startX = startXBase + (random.nextFloat() * 2f - 1f) * startXVariance;
+            heart.setX(startX - heartSize / 2f);
+            heart.setY(startY - heartSize / 2f); // Y轴起始固定在底部
+            heart.setAlpha(0f); // 初始透明
+            heart.setRotation(random.nextFloat() * 60 - 30); // 初始随机倾斜
+
+            // --- 动画参数 ---
+            long duration = (long) (baseDuration * (random.nextFloat() * 0.5 + 0.8)); // 随机时长
+            long startDelay = (long) (((float)i / heartCount) * maxStaggerDelay); // 分散启动
+            float targetY = -heartSize; // 最终飘出屏幕顶部
+            float horizontalDrift = (random.nextFloat() * 2f - 1f) * (containerWidth * 0.6f); // 水平漂移距离
+
+            // --- 执行爱心动画 ---
+            // 使用 ObjectAnimator 组合更复杂的动画路径或效果
+            // 这里简化处理，用 ViewPropertyAnimator
+            heart.animate()
+                    .setStartDelay(startDelay)
+                    .alpha(1f) // 先淡入
+                    .translationY(targetY) // 向上移动
+                    .translationXBy(horizontalDrift) // 水平漂移
+                    .rotationBy(random.nextFloat() * 360 - 180) // 向上时旋转
+                    .setDuration(duration)
+                    .setInterpolator(new LinearInterpolator()) // 匀速或非常慢的减速漂浮
+                    .setListener(new AnimatorListenerAdapter() {
+                        @Override
+                        public void onAnimationStart(Animator animation) {
+                            // (可选) 可以在开始时加一个小的缩放脉冲
+                            heart.animate().scaleX(1.2f).scaleY(1.2f).setDuration(150).withEndAction(()->{
+                                heart.animate().scaleX(1f).scaleY(1f).setDuration(150).start();
+                            }).start();
+                        }
+
+                        @Override
+                        public void onAnimationEnd(Animator animation) {
+                            // --- 快要结束时淡出 --- (或者直接在向上移动的同时淡出)
+                            heart.animate()
+                                    .alpha(0f)
+                                    .setDuration(duration / 4) // 最后1/4时间淡出
+                                    .setInterpolator(new AccelerateInterpolator())
+                                    .setListener(new AnimatorListenerAdapter() {
+                                        @Override
+                                        public void onAnimationEnd(Animator animation) {
+                                            if (heart.getParent() != null) {
+                                                container.removeView(heart);
+                                            }
+                                        }
+                                    })
+                                    .start();
+                        }
+                    })
+                    .withLayer()
+                    .start();
+        }
+    }
+    /**
+     * 在指定容器内，从一个源 View 的位置创建并动画化粒子效果 (修复卡顿和时长版)
+     * @param sourceView 动画起源的 View (用于获取位置)
+     * @param container 容纳粒子的 ViewGroup
+     * @param baseDuration 粒子动画的基础持续时间 (会在此基础上随机化)
+     */
+    private void createAndAnimateParticles(View sourceView, ViewGroup container, long baseDuration) {
+        if (sourceView == null || container == null) return;
+
+        int particleCount = 40; // 可以稍微减少粒子数，如果50仍然卡顿
+        int minParticleSize = dpToPx(3);
+        int maxParticleSize = dpToPx(8);
+
+        // 获取起点坐标 (同前)
+        int[] sourcePos = new int[2];
+        sourceView.getLocationOnScreen(sourcePos);
+        float startX = sourcePos[0] + sourceView.getWidth() / 2f;
+        float startY = sourcePos[1] + sourceView.getHeight() / 2f;
+
+        // 获取屏幕尺寸和距离 (同前)
+        Display display = getWindowManager().getDefaultDisplay();
+        Point size = new Point();
+        display.getSize(size);
+        int screenWidth = size.x;
+        int screenHeight = size.y;
+        float maxDistance = Math.max(screenWidth, screenHeight) * 0.7f;
+        float minDistance = maxDistance * 0.3f;
+
+        // --- 新增：计算每个粒子的最大延迟时间 ---
+        // 让所有粒子的启动分散在大约 150ms 内完成
+        long maxStaggerDelay = 450;
+
+
+        Log.d(TAG, "创建粒子 (增强版)，起点: (" + startX + ", " + startY + ")");
+
+        for (int i = 0; i < particleCount; i++) {
+            // 创建粒子 View (同前)
+            View particle = new View(this);
+            particle.setBackgroundColor(getRandomParticleColor());
+            int particleSize = random.nextInt(maxParticleSize - minParticleSize + 1) + minParticleSize;
+            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(particleSize, particleSize);
+            // --- 延迟添加 View 可能帮助不大，主要瓶颈在启动动画 ---
+            container.addView(particle, params);
+
+            // 设置初始位置和状态 (同前)
+            particle.setX(startX - particleSize / 2f);
+            particle.setY(startY - particleSize / 2f);
+            particle.setAlpha(1f);
+            particle.setScaleX(1.2f);
+            particle.setScaleY(1.2f);
+
+            // 计算随机目标 (同前)
+            double angle = random.nextDouble() * 2 * Math.PI;
+            float distance = random.nextFloat() * (maxDistance - minDistance) + minDistance;
+            float translationX = (float) (distance * Math.cos(angle));
+            float translationY = (float) (distance * Math.sin(angle));
+            float rotation = random.nextFloat() * 1080 - 540;
+
+            // --- 调整随机化动画时长，使其整体更长 ---
+            // 时长范围改为 80% 到 130% 的基础时长
+            long duration = (long) (baseDuration * (random.nextFloat() * 0.5 + 0.8));
+
+            // --- 新增：计算每个粒子的启动延迟 ---
+            long startDelay = (long) (((float)i / particleCount) * maxStaggerDelay); // 根据索引计算延迟
+
+            // 执行粒子动画
+            particle.animate()
+                    .setStartDelay(startDelay) // *** 应用启动延迟 ***
+                    .translationXBy(translationX)
+                    .translationYBy(translationY)
+                    .alpha(0f)
+                    .rotationBy(rotation)
+                    .scaleX(0.7f)
+                    .scaleY(0.7f)
+                    .setDuration(duration) // 使用更长且随机化的时长
+                    .setInterpolator(new DecelerateInterpolator(1.5f))
+                    .setListener(new AnimatorListenerAdapter() {
+                        @Override
+                        public void onAnimationEnd(Animator animation) {
+                            if (particle.getParent() != null) {
+                                container.removeView(particle);
+                            }
+                        }
+                    })
+                    .withLayer() // *** 尝试使用硬件层加速 ***
+                    .start();
+        }
+    }
+
+    /**
+     * 获取随机的粒子颜色 (示例：白色、黄色、橙色系)
+     * @return Color int
+     */
+    private int getRandomParticleColor() {
+        int[] colors = {
+                Color.WHITE,
+                Color.YELLOW,
+                0xFFFFA500, // Orange
+                0xFFFFE4B5  // Moccasin (淡黄)
+        };
+        return colors[random.nextInt(colors.length)];
+    }
+
+    /**
+     * 辅助方法：将 dp 转换为 px
+     */
+    private int dpToPx(int dp) {
+        float density = getResources().getDisplayMetrics().density;
+        return Math.round((float) dp * density);
+    }
+
+
+    /**
+     * 设置用于接收服务重试失败通知的广播接收器。
+     */
+    private void setupRetryFailureReceiver() {
+        retryFailureReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                // 检查收到的广播 Action 是否是我们期望的那个
+                if (CameraStreamService.ACTION_SHOW_RETRY_FAILURE_DIALOG.equals(intent.getAction())) {
+                    Log.w(TAG, "接收到服务重试失败的广播通知");
+                    // 调用显示弹窗的方法
+                    showRetryFailedDialog();
+                }
+            }
+        };
+        // 创建 IntentFilter，只接收指定 Action 的广播
+        // 使用 Service 中定义的完整 Action 名称
+        retryFailureIntentFilter = new IntentFilter(CameraStreamService.ACTION_SHOW_RETRY_FAILURE_DIALOG);
+    }
+
+    /**
+     * 显示自动重连失败的对话框。
+     * 确保在 UI 线程执行。
+     */
+    private void showRetryFailedDialog() {
+        // 确保 Activity 仍然处于活动状态，避免在已销毁的 Activity 上显示弹窗
+        if (!isFinishing() && !isDestroyed()) {
+            // 使用 runOnUiThread 确保弹窗在主线程显示
+            runOnUiThread(() -> new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("连接失败")
+                    .setMessage("尝试自动重新连接服务失败。请检查网络连接和服务器状态，然后尝试手动连接。")
+                    .setPositiveButton("知道了", (dialog, which) -> dialog.dismiss()) // 关闭对话框
+                    .setNegativeButton("尝试重连", (dialog, which) -> {
+                        // 用户点击“尝试重连”，模拟点击界面上的连接按钮
+                        if (connectButton != null) {
+                            connectButton.performClick();
+                        }
+                        dialog.dismiss();
+                    })
+                    .setCancelable(false) // 不允许点击对话框外部区域取消
+                    .show());
+        } else {
+            Log.w(TAG,"尝试显示重试失败对话框，但 Activity 已结束。");
+        }
+    }
+
+    @SuppressLint({"UnspecifiedRegisterReceiverFlag", "WrongConstant"}) // 添加注解抑制警告
     @Override
     protected void onResume() {
         super.onResume();
-        Log.d(TAG,"MainActivity onResume");
-        // 注册传感器监听器
-        sensorHandler.registerListener();
+        // 注册光线传感器监听器
+        if (lightSensor != null) {
+            sensorManager.registerListener(this, lightSensor, SensorManager.SENSOR_DELAY_NORMAL);
+        }
+        // 可以在 onResume 时再次检查通知权限，以防用户在设置中更改了它
+        checkNotificationPermission();
 
-         // 注册广播接收器
-         // 确保接收器和过滤器不为空
-         if (retryFailureReceiver != null && retryFailureIntentFilter != null) {
-             // Android 14 (API 34) 及以上版本需要明确指定导出行为
-             // 对于应用内广播，应使用 RECEIVER_NOT_EXPORTED
-             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) { // API 34
-                 registerReceiver(retryFailureReceiver, retryFailureIntentFilter, ContextCompat.RECEIVER_NOT_EXPORTED);
-                 Log.d(TAG,"已注册重试失败广播接收器 (Android 14+, NOT_EXPORTED)");
-             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) { // API 33
-                 // Android 13 也推荐明确指定，虽然 Lint 可能只在 14 上警告
-                 registerReceiver(retryFailureReceiver, retryFailureIntentFilter, ContextCompat.RECEIVER_NOT_EXPORTED);
-                 Log.d(TAG,"已注册重试失败广播接收器 (Android 13, NOT_EXPORTED)");
-             }
-             else {
-                 // Android 13 以下版本，不需要指定导出标志
-                 registerReceiver(retryFailureReceiver, retryFailureIntentFilter);
-                 Log.d(TAG,"已注册重试失败广播接收器 (Android 13 以下)");
-             }
-         }
-        // 可以在 onResume 时再次检查权限，以防用户在设置中更改了权限
-        // checkNotificationPermission(); // 如果需要更频繁地检查
+        // --- 新增：注册广播接收器 ---
+        if (retryFailureReceiver != null && retryFailureIntentFilter != null) {
+            // 注册广播接收器以接收来自 Service 的失败通知
+            // Android Tiramisu (API 33) 及以上版本需要明确指定导出行为
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                // 对于应用内广播，使用 RECEIVER_NOT_EXPORTED
+                registerReceiver(retryFailureReceiver, retryFailureIntentFilter, ContextCompat.RECEIVER_NOT_EXPORTED);
+                // 或者 ContextCompat.registerReceiver(this, retryFailureReceiver, retryFailureIntentFilter, ContextCompat.RECEIVER_NOT_EXPORTED);
+                Log.d(TAG,"已注册重试失败广播接收器 (Android 13+, NOT_EXPORTED)");
+            } else {
+                // 对于 Android 13 以下版本，不需要指定导出标志
+                registerReceiver(retryFailureReceiver, retryFailureIntentFilter);
+                Log.d(TAG,"已注册重试失败广播接收器 (Android 13 以下)");
+                // 注意：如果担心安全问题或只想应用内通信，可以考虑使用 LocalBroadcastManager
+                // LocalBroadcastManager.getInstance(this).registerReceiver(retryFailureReceiver, retryFailureIntentFilter);
+            }
+        }
+        // --- 结束新增 ---
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        Log.d(TAG,"MainActivity onPause");
-        // 注销传感器监听器，释放资源
-        sensorHandler.unregisterListener();
+        // 取消注册光线传感器监听器
+        if (lightSensor != null) {
+            sensorManager.unregisterListener(this);
+        }
 
-         // 注销广播接收器，防止内存泄漏
-         try {
-             if (retryFailureReceiver != null) {
-                 unregisterReceiver(retryFailureReceiver);
-                 Log.d(TAG,"重试失败广播接收器已注销。");
-             }
-         } catch (IllegalArgumentException e) {
-             // 如果接收器尚未注册或已被注销，会抛出此异常，可以安全地忽略
-             Log.w(TAG, "尝试注销接收器时出错 (可能未注册或已注销)", e);
-         }
+        // --- 新增：取消注册广播接收器 ---
+        if (retryFailureReceiver != null) {
+            try {
+                // 取消注册广播接收器，避免内存泄漏
+                unregisterReceiver(retryFailureReceiver);
+                // LocalBroadcastManager.getInstance(this).unregisterReceiver(retryFailureReceiver);
+                Log.d(TAG,"已取消注册重试失败广播接收器");
+            } catch (IllegalArgumentException e) {
+                // 如果接收器之前没有成功注册，取消注册时会抛出此异常，可以安全地忽略
+                Log.w(TAG,"取消注册重试失败广播接收器时出错（可能未注册）: " + e.getMessage());
+            }
+        }
+        // --- 结束新增 ---
     }
 
-     @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        Log.d(TAG,"MainActivity onDestroy");
-        // 清理 ViewBinding 引用，帮助垃圾回收
-        binding = null;
+    /**
+     * 从 SharedPreferences 加载保存的 IP 地址和重启设置
+     */
+    private void loadSavedPreferences() {
+        String savedIpAddress = sharedPreferences.getString(KEY_IP_ADDRESS, ""); // 默认空字符串
+        boolean savedRestartPref = sharedPreferences.getBoolean(KEY_RESTART_SERVICE, true); // 默认开启重启
+
+        ipAddressEditText.setText(savedIpAddress);
+        CameraStreamServiceSwitch.setChecked(savedRestartPref);
+
+        Log.d(TAG, "已加载保存的设置: IP=" + savedIpAddress + ", Restart=" + savedRestartPref);
+    }
+
+    /**
+     * 保存 IP 地址和重启设置到 SharedPreferences
+     */
+    private void savePreferences(String ip, boolean restartEnabled) {
+        SharedPreferences.Editor editor = sharedPreferences.edit();
+        editor.putString(KEY_IP_ADDRESS, ip);
+        editor.putBoolean(KEY_RESTART_SERVICE, restartEnabled);
+        editor.apply(); // 异步保存
+        Log.i(TAG, "已保存设置: IP=" + ip + ", Restart=" + restartEnabled);
+    }
+
+    /**
+     * 单独保存重启设置到 SharedPreferences (当开关状态改变时调用)
+     */
+    private void saveRestartPreference(boolean restartEnabled) {
+        sharedPreferences.edit().putBoolean(KEY_RESTART_SERVICE, restartEnabled).apply();
+        Log.i(TAG, "已更新重启设置: " + restartEnabled);
+    }
+
+    /**
+     * 检查 IP 地址格式是否有效
+     * @param ip 要检查的 IP 地址字符串
+     * @return 如果格式有效则返回 true，否则返回 false
+     */
+    private boolean isValidIpAddress(String ip) {
+        // 检查非空且符合 IP 地址的格式
+        return TextUtils.isEmpty(ip) || !Patterns.IP_ADDRESS.matcher(ip).matches();
+    }
+
+
+    /**
+     * 检查 Android 13+ 的通知权限状态。
+     */
+    private void checkNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) { // Android 13 (API 33) 或更高
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+                    PackageManager.PERMISSION_GRANTED) {
+                // 已经有权限
+                isNotificationPermissionGranted = true;
+                // Log.d(TAG,"通知权限已授予 (Android 13+)。"); // 日志可以按需开启
+            } else {
+                // 没有权限
+                isNotificationPermissionGranted = false;
+                Log.d(TAG,"通知权限未授予 (Android 13+)，将在需要时请求。");
+            }
+        } else {
+            // Android 13 以下，不需要此运行时权限
+            isNotificationPermissionGranted = true;
+            // Log.d(TAG,"低于 Android 13，无需运行时通知权限。");
+        }
+    }
+
+    /**
+     * 显示请求通知权限的理由对话框 (如果需要)。
+     */
+    private void showNotificationPermissionRationale() {
+        // 仅在 Android 13+ 且系统建议显示理由时才显示
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.POST_NOTIFICATIONS)) {
+            new AlertDialog.Builder(this)
+                    .setTitle("需要通知权限")
+                    .setMessage("应用需要在后台运行时显示通知，以确保服务持续运行并告知您状态。请授予通知权限。")
+                    .setPositiveButton("去授权", (dialog, which) -> {
+                        // 用户同意，再次请求权限
+                        requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
+                    })
+                    .setNegativeButton("取消", (dialog, which) -> {
+                        // 用户拒绝，权限状态不变
+                        isNotificationPermissionGranted = false;
+                        Toast.makeText(this, "未授予通知权限，服务可能无法正常运行", Toast.LENGTH_SHORT).show();
+                    })
+                    .show();
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !isNotificationPermissionGranted) {
+            // 用户可能选择了 "不再询问"，或者首次请求就被拒绝（不显示理由）
+            // 提示用户去系统设置中手动开启
+            Toast.makeText(this, "请在应用设置中手动开启通知权限以确保服务正常运行", Toast.LENGTH_LONG).show();
+            // 可以选择性地引导用户去设置界面：
+             Intent intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+             intent.putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+             startActivity(intent);
+        }
+    }
+
+    // 光线传感器数值变化回调
+    @Override
+    public void onSensorChanged(SensorEvent event) {
+        if (event.sensor.getType() == Sensor.TYPE_LIGHT) {
+            float lightLevel = event.values[0];
+            // 更新 TextView 显示
+            lightSensorTextView.setText(String.format("光线传感器: %.1f lux", lightLevel));
+            // 更新图表
+            addLightEntry(lightLevel);
+        }
+    }
+
+    // 传感器精度变化回调（通常不用处理）
+    @Override
+    public void onAccuracyChanged(Sensor sensor, int accuracy) {
+    }
+
+    /**
+     * 统一的权限检查和启动服务入口。
+     * 按顺序检查权限：通知 -> 相机 -> (其他)。
+     */
+    private void checkPermissionsAndStartService() {
+        // 1. 检查通知权限 (Android 13+)
+        //    必须先获得通知权限，才能成功调用 startForegroundService
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !isNotificationPermissionGranted) {
+            Log.d(TAG, "启动服务前检查：通知权限未授予，请求权限...");
+            requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
+            // 等待权限结果回调，在回调中会再次调用此方法
+            return;
+        }
+
+        // 2. 通知权限已满足 (或不需要)，检查相机权限
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            Log.d(TAG, "启动服务前检查：相机权限未授予，请求权限...");
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST_CODE);
+            // 等待权限结果回调
+            return;
+        }
+
+        // --- 所有必要权限都已授予 ---
+        Log.i(TAG, "所有必要权限已授予，准备启动服务...");
+        // 调用启动服务的方法
+        startSelectedServices();
+    }
+
+
+    // 处理权限请求结果的回调
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        boolean allGranted = true;
+        if (grantResults.length == 0) {
+            allGranted = false; // 没有结果，认为失败
+        } else {
+            for (int result : grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) {
+                    allGranted = false;
+                    break;
+                }
+            }
+        }
+
+        if (requestCode == CAMERA_PERMISSION_REQUEST_CODE) {
+            if (allGranted) {
+                Log.i(TAG, "相机权限已授予。");
+                // 相机权限OK，再次调用检查流程，它会检查通知权限（理论上已通过或无需检查）并启动服务
+                checkPermissionsAndStartService();
+            } else {
+                Log.e(TAG, "相机权限被拒绝！");
+                Toast.makeText(this, "必须授予相机权限才能使用此功能", Toast.LENGTH_SHORT).show();
+                // 可以选择退出或禁用相关功能
+                // finish();
+            }
+        } else if (requestCode == PERMISSION_REQUEST_CODE) { // 处理其他权限组（如果使用）
+            // 如果使用了 checkAndRequestPermissions() 处理一组权限
+            if (allGranted) {
+                Log.i(TAG, "其他权限组已授予。");
+                checkPermissionsAndStartService(); // 同样，重新检查并启动
+            } else {
+                Log.e(TAG, "其他权限组被拒绝！");
+                Toast.makeText(this, "需要所有请求的权限才能启动服务", Toast.LENGTH_SHORT).show();
+            }
+        }
+        // 通知权限的结果由 ActivityResultLauncher 处理
+    }
+
+    /**
+     * 启动选中的服务。
+     */
+    private void startSelectedServices(){
+        // 再次确认 ipAddress 是最新的且有效
+        // 使用成员变量 this.ipAddress，它应该在点击按钮时已验证并更新
+        if (isValidIpAddress(this.ipAddress)){
+            Toast.makeText(this, "启动服务前发现无效 IP 地址", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        Log.d(TAG,"准备启动服务，使用 IP: " + this.ipAddress);
+
+        // 根据标志启动不同的服务 (当前只关注 CameraStreamService)
+        if (StartCameraStreamService){
+            startCameraStreamService();
+        }
+    }
+
+    /**
+     * 启动 CameraStreamService。
+     */
+    private void startCameraStreamService() {
+        Log.d(TAG, "启动 CameraStreamService (手动)..."); // 标识为手动启动
+        Intent serviceIntent = new Intent(this, CameraStreamService.class);
+        // 将验证过的 IP 地址传递给服务
+        serviceIntent.putExtra("IP_ADDRESS", this.ipAddress);
+        // --- 新增：添加手动启动标志 ---
+        serviceIntent.putExtra("MANUAL_START", true);
+        try {
+            startForegroundService(serviceIntent);
+            Log.i(TAG, "CameraStreamService 启动命令已发送 (手动)。");
+            Toast.makeText(this,"相机流服务已启动", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Log.e(TAG, "启动 CameraStreamService 失败", e);
+            Toast.makeText(this,"启动相机流服务失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+    @Override
+    protected void onStop() {
+        super.onStop();
+    }
+
+
+    // --- 图表相关方法 ---
+    /**
+     * 设置图表的基本样式和配置
+     * 优化后的图表设计更加美观和专业
+     */
+    private void setupLightChart() {
+        // 基础图表配置
+        lightChart.getDescription().setEnabled(false);
+        lightChart.setTouchEnabled(true);        // 启用触摸以提供更好的用户体验
+        lightChart.setDragEnabled(true);         // 允许用户拖动图表
+        lightChart.setScaleEnabled(true);        // 允许缩放以查看详细数据
+        lightChart.setDrawGridBackground(false);
+        lightChart.setPinchZoom(true);           // 启用双指缩放
+        lightChart.setBackgroundColor(Color.WHITE);
+        lightChart.setExtraOffsets(10f, 10f, 10f, 10f);  // 添加边距，使图表更美观
+        lightChart.getLegend().setTextSize(12f);  // 设置图例文字大小
+        lightChart.getLegend().setForm(Legend.LegendForm.LINE);  // 设置图例样式为线形
+        lightChart.getLegend().setFormSize(15f);  // 设置图例形状大小
+        lightChart.setMaxHighlightDistance(300);
+
+        // 设置动画效果
+        lightChart.animateX(1000);  // 添加1秒的X轴动画，使数据更新更流畅
+
+        // 配置 X 轴
+        XAxis x = lightChart.getXAxis();
+        x.setEnabled(true);  // 显示X轴以提高可读性
+        x.setPosition(XAxis.XAxisPosition.BOTTOM);  // 将X轴放在底部
+        x.setDrawGridLines(false);  // 不显示网格线，保持整洁
+        x.setTextColor(Color.DKGRAY);  // 深灰色文字，不那么突兀
+        x.setTextSize(10f);
+        x.setAxisLineColor(Color.DKGRAY);
+        x.setAxisLineWidth(1f);
+        x.setLabelRotationAngle(0);  // 保持标签水平
+
+        // 配置左 Y 轴
+        YAxis y = lightChart.getAxisLeft();
+        y.setLabelCount(6, true);  // 强制使用固定数量的标签，更好看
+        y.setTextColor(Color.DKGRAY);
+        y.setTextSize(10f);
+        y.setPosition(YAxis.YAxisLabelPosition.OUTSIDE_CHART);  // 标签放在外部更清晰
+        y.setDrawGridLines(true);  // 显示水平网格线帮助读数
+        y.setGridColor(Color.LTGRAY);  // 浅灰色网格线不会太显眼
+        y.setGridLineWidth(0.5f);  // 细网格线
+        y.setAxisLineColor(Color.DKGRAY);
+        y.setAxisLineWidth(1f);
+        y.setAxisMinimum(0f);  // 设置Y轴最小值为0，更符合光照强度的实际情况
+
+        // 禁用右 Y 轴
+        lightChart.getAxisRight().setEnabled(false);
+
+        // 创建数据集并添加到图表
+        LineDataSet lightDataSet = createLightSet();
+        LineData data = new LineData(lightDataSet);
+        data.setValueTextSize(10f);  // 设置数值文字大小
+        lightChart.setData(data);
+        lightChart.invalidate();
+    }
+
+    /**
+     * 向图表添加新的光线数据点
+     * 优化了数据点管理和滚动效果
+     * @param lightLevel 光照强度值
+     */
+    private void addLightEntry(float lightLevel) {
+        LineData data = lightChart.getData();
+        if (data == null) {
+            // 如果没有数据，创建新数据集
+            LineDataSet set = createLightSet();
+            data = new LineData(set);
+            lightChart.setData(data);
+        }
+
+        ILineDataSet set = data.getDataSetByIndex(0);
+        if (set == null) {
+            set = createLightSet();
+            data.addDataSet(set);
+        }
+
+        // 控制数据点数量和滚动效果
+        final int MAX_VISIBLE_POINTS = 100;  // 最大可见点数常量，便于维护
+        final int MAX_TOTAL_POINTS = 1000;   // 总保留点数上限，防止内存占用过大
+
+        // 添加新数据点
+        data.addEntry(new Entry(set.getEntryCount(), lightLevel), 0);
+
+        // 移除过多的点以优化性能
+        if (set.getEntryCount() > MAX_TOTAL_POINTS) {
+            set.removeEntry(0);
+        }
+
+        // 通知数据更新
+        data.notifyDataChanged();
+        lightChart.notifyDataSetChanged();
+
+        // 优化滚动效果
+        lightChart.setVisibleXRangeMaximum(MAX_VISIBLE_POINTS);
+        lightChart.moveViewToX(data.getEntryCount() - 1);
+
+        // 可选：添加边界检查，确保图表显示范围在合理区间
+        if (lightLevel > lightChart.getAxisLeft().getAxisMaximum()) {
+            // 如果新数据超出当前Y轴范围，适当调整
+            lightChart.getAxisLeft().setAxisMaximum(lightLevel + lightLevel * 0.1f);
+            lightChart.invalidate();
+        }
+    }
+
+    /**
+     * 创建光线图表的数据集样式
+     * 优化后的数据集更加美观，提供渐变色填充效果
+     * @return 配置好的LineDataSet对象
+     */
+    private LineDataSet createLightSet() {
+        LineDataSet set = new LineDataSet(null, "光照强度 (lux)");
+
+        // 线条样式
+        set.setLineWidth(2.5f);  // 稍微加粗线条
+        set.setColor(Color.rgb(33, 150, 243));  // 使用Material Design蓝色
+        set.setMode(LineDataSet.Mode.CUBIC_BEZIER);  // 平滑曲线
+
+        // 数据点样式
+        set.setDrawCircles(true);  // 显示数据点，增强可读性
+        set.setCircleRadius(3f);   // 适当的圆点大小
+        set.setCircleColor(Color.rgb(33, 150, 243));  // 与线条颜色一致
+        set.setCircleHoleRadius(1.5f);  // 设置圆点空心部分大小
+        set.setCircleHoleColor(Color.WHITE);  // 圆点中心为白色
+
+        // 数值显示
+        set.setDrawValues(false);  // 默认不显示数值
+
+        // 高亮效果
+        set.setHighlightEnabled(true);  // 启用高亮
+        set.setHighLightColor(Color.rgb(244, 67, 54));  // 高亮颜色使用红色
+        set.setHighlightLineWidth(1.5f);  // 高亮线宽度
+
+        // 填充效果
+        set.setDrawFilled(true);
+
+        // 使用渐变填充效果
+        // 填充渐变 - 从蓝色过渡到透明
+        Drawable gradientDrawable = new GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[] {
+                        Color.argb(150, 33, 150, 243),  // 半透明蓝色
+                        Color.argb(50, 33, 150, 243),   // 更透明的蓝色
+                        Color.argb(20, 33, 150, 243)    // 几乎透明的蓝色
+                }
+        );
+        set.setFillDrawable(gradientDrawable);
+
+        return set;
     }
 
 }
