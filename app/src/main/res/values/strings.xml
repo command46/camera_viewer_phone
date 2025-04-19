@@ -24,6 +24,7 @@
 
     <!-- 爽感等级选项 (用描述性词语替换) -->
     <string-array name="pleasure_levels">
+        <item>无</item>
         <item>轻微</item>
         <item>愉悦</item>
         <item>满足</item>

@@ -1,5 +1,8 @@
 package com.example.myapplication;
 
+import static com.example.myapplication.ToolData.Tools.isValidIpAddress;
+import static com.example.myapplication.ToolData.Tools.showMonthlyViewDialog;
+
 import android.Manifest;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
@@ -14,8 +17,6 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Point;
-import android.graphics.drawable.Drawable;
-import android.graphics.drawable.GradientDrawable;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -23,9 +24,7 @@ import android.hardware.SensorManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
-import android.text.TextUtils;
 import android.util.Log;
-import android.util.Patterns;
 import android.view.Display;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -37,7 +36,6 @@ import android.view.animation.OvershootInterpolator;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
-import android.widget.CalendarView;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
@@ -57,25 +55,15 @@ import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
-import androidx.recyclerview.widget.LinearLayoutManager;
-import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.myapplication.ToolData.JsonDataStorage;
-import com.example.myapplication.ToolData.RecordData;
+import com.example.myapplication.ToolData.Tools;
 import com.github.mikephil.charting.charts.LineChart;
-import com.github.mikephil.charting.components.Legend;
-import com.github.mikephil.charting.components.XAxis;
-import com.github.mikephil.charting.components.YAxis;
-import com.github.mikephil.charting.data.Entry;
-import com.github.mikephil.charting.data.LineData;
-import com.github.mikephil.charting.data.LineDataSet;
-import com.github.mikephil.charting.interfaces.datasets.ILineDataSet;
 import com.google.android.material.switchmaterial.SwitchMaterial;
 
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Random;
 
 public class MainActivity extends AppCompatActivity implements SensorEventListener {
@@ -90,8 +78,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private static final String TAG = "MainActivity";
     private static final int CAMERA_PERMISSION_REQUEST_CODE = 100;
     private static final int PERMISSION_REQUEST_CODE = 1001; // 用于其他权限组（如果需要）
-
-    private final boolean StartCameraStreamService = true; // 默认启动 CameraStreamService
 
     private Button connectButton;
     private EditText ipAddressEditText;
@@ -117,7 +103,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private Button viewMonthlyDataButton; // 新增：查看月视图按钮
 
     // --- 新增：用于日期格式化 ---
-    private SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault());
+    private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault());
     private String todayDateKey = ""; // 今天日期的键
 
     // 权限请求启动器
@@ -173,6 +159,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         // --- 新增：加载今天的数据到计数器和 Spinner ---
         loadTodayData();
     }
+
     private void initSensors() {
         sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
         lightSensor = sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT);
@@ -236,6 +223,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 // 当用户选择新的爽感等级时，保存当前状态
                 saveCurrentState();
             }
+
             @Override
             public void onNothingSelected(AdapterView<?> parent) {
                 // 通常不需要处理
@@ -243,7 +231,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         });
 
         // 查看月视图按钮
-        viewMonthlyDataButton.setOnClickListener(v -> showMonthlyViewDialog());
+        viewMonthlyDataButton.setOnClickListener(v -> showMonthlyViewDialog(this));
     }
 
     /**
@@ -269,6 +257,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         }
         saveCurrentState();
     }
+
     /**
      * 获取当前状态（次数、爽感）并保存到 JSON
      */
@@ -290,156 +279,40 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             } catch (NumberFormatException e) {
                 Log.e(TAG, "保存状态时无法解析 Spinner 值: " + pleasureLevelSpinner.getSelectedItem(), e);
                 selectedPleasureLevel = pleasureLevelSpinner.getSelectedItemPosition() + 1; // 尝试使用位置
-                if(selectedPleasureLevel < 1 || selectedPleasureLevel > 5) selectedPleasureLevel = 1; // 再次检查
+                if (selectedPleasureLevel < 1 || selectedPleasureLevel > 6)
+                    selectedPleasureLevel = 1; // 再次检查
             }
         }
 
         Log.d(TAG, "正在保存状态 - 日期: " + todayDateKey + ", 次数: " + currentCount + ", 爽感: " + selectedPleasureLevel);
         JsonDataStorage.saveRecord(this, todayDateKey, currentCount, selectedPleasureLevel);
     }
+
     /**
      * 加载今天的数据（如果存在）并更新 UI
      */
     private void loadTodayData() {
-        RecordData todayRecord = JsonDataStorage.getRecord(this, todayDateKey);
-        if (todayRecord != null) {
-            Log.d(TAG, "找到今天的数据: 次数=" + todayRecord.getCount() + ", 爽感=" + todayRecord.getPleasureLevel());
-            counterTextView.setText(String.valueOf(todayRecord.getCount()));
-            // 设置 Spinner 的选中项 (爽感是 1-5, Spinner 位置是 0-4)
-            int spinnerPosition = todayRecord.getPleasureLevel() - 1;
-            if (spinnerPosition >= 0 && spinnerPosition < pleasureLevelSpinner.getAdapter().getCount()) {
+        int[] ints = Tools.loadTodayData(this);
+        int count = ints[0];
+        int pleasureLevel = ints[1];
+        if (count > 0 && pleasureLevel > 0) {
+            Log.d(TAG, "找到今天的数据: 次数=" + count + ", 爽感=" + pleasureLevel);
+            counterTextView.setText(String.valueOf(count));
+            // 设置 Spinner 的选中项 (爽感是 1-6, Spinner 位置是 0-4)
+            int spinnerPosition = pleasureLevel - 1;
+            if (spinnerPosition < pleasureLevelSpinner.getAdapter().getCount()) {
                 pleasureLevelSpinner.setSelection(spinnerPosition);
             } else {
                 pleasureLevelSpinner.setSelection(0); // 默认选第一个
             }
         } else {
-            Log.d(TAG, "今天 ("+ todayDateKey +") 没有找到记录，使用默认值。");
+            Log.d(TAG, "今天 (" + todayDateKey + ") 没有找到记录，使用默认值。");
             // 如果没有记录，保持 XML 中的默认值或显式设置为 0 和默认爽感
             counterTextView.setText("0");
             pleasureLevelSpinner.setSelection(0); // 默认选第一个 (即等级 1)
         }
     }
-    /**
-     * 显示月视图对话框
-     */
-    @SuppressLint("StringFormatMatches")
-    private void showMonthlyViewDialog() {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        LayoutInflater inflater = this.getLayoutInflater();
-        View dialogView = inflater.inflate(R.layout.dialog_monthly_view, null);
-        builder.setView(dialogView);
-        builder.setTitle(R.string.monthly_view_title);
 
-        CalendarView calendarView = dialogView.findViewById(R.id.calendarViewDialog);
-        TextView detailsTextView = dialogView.findViewById(R.id.detailsTextViewDialog);
-        RecyclerView monthRecordsRecyclerView = dialogView.findViewById(R.id.monthRecordsRecyclerView);
-
-        // 获取所有记录用于查找
-        final Map<String, RecordData> allRecords = JsonDataStorage.getAllRecords(this);
-
-        // 获取爽感等级文字描述
-        final String[] pleasureLevels = getResources().getStringArray(R.array.pleasure_levels);
-
-        // 设置RecyclerView
-        RecordAdapter adapter = new RecordAdapter(this);
-        monthRecordsRecyclerView.setAdapter(adapter);
-        monthRecordsRecyclerView.setLayoutManager(new LinearLayoutManager(this));
-
-        // 用于计算月度统计数据
-        Calendar currentCalendar = Calendar.getInstance();
-        updateMonthRecords(adapter, allRecords, currentCalendar.get(Calendar.YEAR),
-                currentCalendar.get(Calendar.MONTH), detailsTextView);
-
-        calendarView.setOnDateChangeListener((view, year, month, dayOfMonth) -> {
-            // 更新月度记录列表
-            if (year != currentCalendar.get(Calendar.YEAR) ||
-                    month != currentCalendar.get(Calendar.MONTH)) {
-                currentCalendar.set(Calendar.YEAR, year);
-                currentCalendar.set(Calendar.MONTH, month);
-                updateMonthRecords(adapter, allRecords, year, month, detailsTextView);
-            }
-
-            // 显示选中日期的详细信息
-            Calendar selectedCalendar = Calendar.getInstance();
-            selectedCalendar.set(year, month, dayOfMonth);
-            String selectedDateKey = dateFormat.format(selectedCalendar.getTime());
-
-            RecordData selectedRecord = allRecords.get(selectedDateKey);
-            if (selectedRecord != null) {
-                // 获取爽感的文字描述
-                String pleasureLevelText = "未知";
-                int pleasureLevel = selectedRecord.getPleasureLevel();
-                if (pleasureLevel >= 1 && pleasureLevel <= pleasureLevels.length) {
-                    pleasureLevelText = pleasureLevels[pleasureLevel - 1];
-                }
-
-                detailsTextView.setText(getString(R.string.record_details_format,
-                        selectedRecord.getCount(), pleasureLevelText));
-            } else {
-                detailsTextView.setText(R.string.no_record_found);
-            }
-        });
-
-        // 设置对话框关闭按钮
-        builder.setPositiveButton(R.string.close, (dialog, which) -> dialog.dismiss());
-
-        AlertDialog dialog = builder.create();
-        dialog.show();
-
-        // 初始化时显示当天的信息
-        long initialMillis = Calendar.getInstance().getTimeInMillis();
-        calendarView.setDate(initialMillis, false, true); // 设置日历到今天
-        Calendar initialCalendar = Calendar.getInstance();
-        initialCalendar.setTimeInMillis(initialMillis);
-        String initialDateKey = dateFormat.format(initialCalendar.getTime());
-        RecordData initialRecord = allRecords.get(initialDateKey);
-        if (initialRecord != null) {
-            // 获取爽感的文字描述
-            String pleasureLevelText = "未知";
-            int pleasureLevel = initialRecord.getPleasureLevel();
-            if (pleasureLevel >= 1 && pleasureLevel <= pleasureLevels.length) {
-                pleasureLevelText = pleasureLevels[pleasureLevel - 1];
-            }
-
-            detailsTextView.setText(getString(R.string.record_details_format,
-                    initialRecord.getCount(), pleasureLevelText));
-        } else {
-            detailsTextView.setText(R.string.no_record_found);
-        }
-    }
-
-    /**
-     * 更新月记录列表并计算月度统计
-     */
-    private void updateMonthRecords(RecordAdapter adapter, Map<String, RecordData> allRecords,
-                                    int year, int month, TextView summaryTextView) {
-        adapter.setMonthData(allRecords, year, month);
-
-        // 计算月度统计
-        int totalCount = 0;
-        int pleasureLevelSum = 0;
-        int recordCount = 0;
-
-        String monthPrefix = String.format("%04d-%02d-", year, month + 1);
-
-        for (Map.Entry<String, RecordData> entry : allRecords.entrySet()) {
-            if (entry.getKey().startsWith(monthPrefix)) {
-                RecordData record = entry.getValue();
-                totalCount += record.getCount();
-                pleasureLevelSum += record.getPleasureLevel();
-                recordCount++;
-            }
-        }
-
-        // 显示月度统计信息
-        if (recordCount > 0) {
-            float avgPleasureLevel = (float) pleasureLevelSum / recordCount;
-            summaryTextView.setText(getString(R.string.monthly_summary_format,
-                    totalCount, avgPleasureLevel));
-        } else {
-            summaryTextView.setText(R.string.no_record_found);
-        }
-    }
     private void initNotificationPermissionLauncher() {
         requestNotificationPermissionLauncher = registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
             if (isGranted) {
@@ -450,7 +323,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 isNotificationPermissionGranted = false;
                 Log.w(TAG, "通知权限被拒绝。");
                 showNotificationPermissionRationale();
-                Toast.makeText(this,"缺少通知权限，前台服务可能无法正常启动或显示通知", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "缺少通知权限，前台服务可能无法正常启动或显示通知", Toast.LENGTH_LONG).show();
             }
         });
     }
@@ -480,8 +353,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         long shockwaveDuration = 1000;     // 冲击波动画时长
         long heartStartDelay = shockwaveDelay + shockwaveDuration / 3; // 冲击波扩散后开始爱心
         long heartAnimBaseDuration = 2500; // 爱心动画基础时长 (更长)
-        long maxParticleDuration = (long)(particleAnimBaseDuration * 1.3);
-        long maxHeartDuration = (long)(heartAnimBaseDuration * 1.3);
+        long maxHeartDuration = (long) (heartAnimBaseDuration * 1.3);
 
         // --- 调整覆盖层移除延迟，需要覆盖所有动画 ---
         long overlayRemovalDelay = Math.max(shockwaveDelay + shockwaveDuration, heartStartDelay + maxHeartDuration) + 300;
@@ -537,14 +409,14 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         rootView.postDelayed(() -> {
             View overlayToRemove = rootView.findViewById(R.id.explosionOverlayRoot);
             if (overlayToRemove != null && overlayToRemove.getParent() instanceof ViewGroup) {
-                ((ViewGroup)overlayToRemove.getParent()).removeView(overlayToRemove);
-                Log.d(TAG,"浮夸动画覆盖层已移除 (延迟)");
+                ((ViewGroup) overlayToRemove.getParent()).removeView(overlayToRemove);
+                Log.d(TAG, "浮夸动画覆盖层已移除 (延迟)");
             } else {
-                Log.w(TAG,"尝试移除覆盖层，但未找到或已移除");
+                Log.w(TAG, "尝试移除覆盖层，但未找到或已移除");
             }
         }, overlayRemovalDelay);
 
-        Log.d(TAG,"开始播放浮夸版爆炸动画 (粒子+冲击波+爱心)");
+        Log.d(TAG, "开始播放浮夸版爆炸动画 (粒子+冲击波+爱心)");
     }
 
     /**
@@ -574,7 +446,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             public void onAnimationEnd(Animator animation) {
                 shockwaveView.setVisibility(View.GONE); // 动画结束隐藏
                 // 可以同时给 overlayRoot 上个色
-                // container.setBackgroundColor(Color.parseColor("#33FFC0CB")); // 设置一个淡淡的粉色背景
+                container.setBackgroundColor(Color.parseColor("#33FFC0CB")); // 设置一个淡淡的粉色背景
             }
         });
         shockwaveSet.start();
@@ -622,7 +494,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
             // --- 动画参数 ---
             long duration = (long) (baseDuration * (random.nextFloat() * 0.5 + 0.8)); // 随机时长
-            long startDelay = (long) (((float)i / heartCount) * maxStaggerDelay); // 分散启动
+            long startDelay = (long) (((float) i / heartCount) * maxStaggerDelay); // 分散启动
             float targetY = -heartSize; // 最终飘出屏幕顶部
             float horizontalDrift = (random.nextFloat() * 2f - 1f) * (containerWidth * 0.6f); // 水平漂移距离
 
@@ -641,7 +513,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                         @Override
                         public void onAnimationStart(Animator animation) {
                             // (可选) 可以在开始时加一个小的缩放脉冲
-                            heart.animate().scaleX(1.2f).scaleY(1.2f).setDuration(150).withEndAction(()->{
+                            heart.animate().scaleX(1.2f).scaleY(1.2f).setDuration(150).withEndAction(() -> {
                                 heart.animate().scaleX(1f).scaleY(1f).setDuration(150).start();
                             }).start();
                         }
@@ -668,10 +540,12 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                     .start();
         }
     }
+
     /**
      * 在指定容器内，从一个源 View 的位置创建并动画化粒子效果 (修复卡顿和时长版)
-     * @param sourceView 动画起源的 View (用于获取位置)
-     * @param container 容纳粒子的 ViewGroup
+     *
+     * @param sourceView   动画起源的 View (用于获取位置)
+     * @param container    容纳粒子的 ViewGroup
      * @param baseDuration 粒子动画的基础持续时间 (会在此基础上随机化)
      */
     private void createAndAnimateParticles(View sourceView, ViewGroup container, long baseDuration) {
@@ -731,7 +605,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             long duration = (long) (baseDuration * (random.nextFloat() * 0.5 + 0.8));
 
             // --- 新增：计算每个粒子的启动延迟 ---
-            long startDelay = (long) (((float)i / particleCount) * maxStaggerDelay); // 根据索引计算延迟
+            long startDelay = (long) (((float) i / particleCount) * maxStaggerDelay); // 根据索引计算延迟
 
             // 执行粒子动画
             particle.animate()
@@ -759,6 +633,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     /**
      * 获取随机的粒子颜色 (示例：白色、黄色、橙色系)
+     *
      * @return Color int
      */
     private int getRandomParticleColor() {
@@ -822,7 +697,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                     .setCancelable(false) // 不允许点击对话框外部区域取消
                     .show());
         } else {
-            Log.w(TAG,"尝试显示重试失败对话框，但 Activity 已结束。");
+            Log.w(TAG, "尝试显示重试失败对话框，但 Activity 已结束。");
         }
     }
 
@@ -845,11 +720,11 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 // 对于应用内广播，使用 RECEIVER_NOT_EXPORTED
                 registerReceiver(retryFailureReceiver, retryFailureIntentFilter, ContextCompat.RECEIVER_NOT_EXPORTED);
                 // 或者 ContextCompat.registerReceiver(this, retryFailureReceiver, retryFailureIntentFilter, ContextCompat.RECEIVER_NOT_EXPORTED);
-                Log.d(TAG,"已注册重试失败广播接收器 (Android 13+, NOT_EXPORTED)");
+                Log.d(TAG, "已注册重试失败广播接收器 (Android 13+, NOT_EXPORTED)");
             } else {
                 // 对于 Android 13 以下版本，不需要指定导出标志
                 registerReceiver(retryFailureReceiver, retryFailureIntentFilter);
-                Log.d(TAG,"已注册重试失败广播接收器 (Android 13 以下)");
+                Log.d(TAG, "已注册重试失败广播接收器 (Android 13 以下)");
                 // 注意：如果担心安全问题或只想应用内通信，可以考虑使用 LocalBroadcastManager
                 // LocalBroadcastManager.getInstance(this).registerReceiver(retryFailureReceiver, retryFailureIntentFilter);
             }
@@ -871,10 +746,10 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 // 取消注册广播接收器，避免内存泄漏
                 unregisterReceiver(retryFailureReceiver);
                 // LocalBroadcastManager.getInstance(this).unregisterReceiver(retryFailureReceiver);
-                Log.d(TAG,"已取消注册重试失败广播接收器");
+                Log.d(TAG, "已取消注册重试失败广播接收器");
             } catch (IllegalArgumentException e) {
                 // 如果接收器之前没有成功注册，取消注册时会抛出此异常，可以安全地忽略
-                Log.w(TAG,"取消注册重试失败广播接收器时出错（可能未注册）: " + e.getMessage());
+                Log.w(TAG, "取消注册重试失败广播接收器时出错（可能未注册）: " + e.getMessage());
             }
         }
         // --- 结束新增 ---
@@ -912,16 +787,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         Log.i(TAG, "已更新重启设置: " + restartEnabled);
     }
 
-    /**
-     * 检查 IP 地址格式是否有效
-     * @param ip 要检查的 IP 地址字符串
-     * @return 如果格式有效则返回 true，否则返回 false
-     */
-    private boolean isValidIpAddress(String ip) {
-        // 检查非空且符合 IP 地址的格式
-        return TextUtils.isEmpty(ip) || !Patterns.IP_ADDRESS.matcher(ip).matches();
-    }
-
 
     /**
      * 检查 Android 13+ 的通知权限状态。
@@ -936,7 +801,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             } else {
                 // 没有权限
                 isNotificationPermissionGranted = false;
-                Log.d(TAG,"通知权限未授予 (Android 13+)，将在需要时请求。");
+                Log.d(TAG, "通知权限未授予 (Android 13+)，将在需要时请求。");
             }
         } else {
             // Android 13 以下，不需要此运行时权限
@@ -970,9 +835,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             // 提示用户去系统设置中手动开启
             Toast.makeText(this, "请在应用设置中手动开启通知权限以确保服务正常运行", Toast.LENGTH_LONG).show();
             // 可以选择性地引导用户去设置界面：
-             Intent intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
-             intent.putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
-             startActivity(intent);
+            Intent intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+            intent.putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+            startActivity(intent);
         }
     }
 
@@ -1065,20 +930,16 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     /**
      * 启动选中的服务。
      */
-    private void startSelectedServices(){
+    private void startSelectedServices() {
         // 再次确认 ipAddress 是最新的且有效
         // 使用成员变量 this.ipAddress，它应该在点击按钮时已验证并更新
-        if (isValidIpAddress(this.ipAddress)){
+        if (isValidIpAddress(this.ipAddress)) {
             Toast.makeText(this, "启动服务前发现无效 IP 地址", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        Log.d(TAG,"准备启动服务，使用 IP: " + this.ipAddress);
-
-        // 根据标志启动不同的服务 (当前只关注 CameraStreamService)
-        if (StartCameraStreamService){
-            startCameraStreamService();
-        }
+        Log.d(TAG, "准备启动服务，使用 IP: " + this.ipAddress);
+        startCameraStreamService();
     }
 
     /**
@@ -1094,168 +955,24 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         try {
             startForegroundService(serviceIntent);
             Log.i(TAG, "CameraStreamService 启动命令已发送 (手动)。");
-            Toast.makeText(this,"相机流服务已启动", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "相机流服务已启动", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             Log.e(TAG, "启动 CameraStreamService 失败", e);
-            Toast.makeText(this,"启动相机流服务失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "启动相机流服务失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
+
     @Override
     protected void onStop() {
         super.onStop();
     }
 
-
-    // --- 图表相关方法 ---
-    /**
-     * 设置图表的基本样式和配置
-     * 优化后的图表设计更加美观和专业
-     */
     private void setupLightChart() {
-        // 基础图表配置
-        lightChart.getDescription().setEnabled(false);
-        lightChart.setTouchEnabled(true);        // 启用触摸以提供更好的用户体验
-        lightChart.setDragEnabled(true);         // 允许用户拖动图表
-        lightChart.setScaleEnabled(true);        // 允许缩放以查看详细数据
-        lightChart.setDrawGridBackground(false);
-        lightChart.setPinchZoom(true);           // 启用双指缩放
-        lightChart.setBackgroundColor(Color.WHITE);
-        lightChart.setExtraOffsets(10f, 10f, 10f, 10f);  // 添加边距，使图表更美观
-        lightChart.getLegend().setTextSize(12f);  // 设置图例文字大小
-        lightChart.getLegend().setForm(Legend.LegendForm.LINE);  // 设置图例样式为线形
-        lightChart.getLegend().setFormSize(15f);  // 设置图例形状大小
-        lightChart.setMaxHighlightDistance(300);
-
-        // 设置动画效果
-        lightChart.animateX(1000);  // 添加1秒的X轴动画，使数据更新更流畅
-
-        // 配置 X 轴
-        XAxis x = lightChart.getXAxis();
-        x.setEnabled(true);  // 显示X轴以提高可读性
-        x.setPosition(XAxis.XAxisPosition.BOTTOM);  // 将X轴放在底部
-        x.setDrawGridLines(false);  // 不显示网格线，保持整洁
-        x.setTextColor(Color.DKGRAY);  // 深灰色文字，不那么突兀
-        x.setTextSize(10f);
-        x.setAxisLineColor(Color.DKGRAY);
-        x.setAxisLineWidth(1f);
-        x.setLabelRotationAngle(0);  // 保持标签水平
-
-        // 配置左 Y 轴
-        YAxis y = lightChart.getAxisLeft();
-        y.setLabelCount(6, true);  // 强制使用固定数量的标签，更好看
-        y.setTextColor(Color.DKGRAY);
-        y.setTextSize(10f);
-        y.setPosition(YAxis.YAxisLabelPosition.OUTSIDE_CHART);  // 标签放在外部更清晰
-        y.setDrawGridLines(true);  // 显示水平网格线帮助读数
-        y.setGridColor(Color.LTGRAY);  // 浅灰色网格线不会太显眼
-        y.setGridLineWidth(0.5f);  // 细网格线
-        y.setAxisLineColor(Color.DKGRAY);
-        y.setAxisLineWidth(1f);
-        y.setAxisMinimum(0f);  // 设置Y轴最小值为0，更符合光照强度的实际情况
-
-        // 禁用右 Y 轴
-        lightChart.getAxisRight().setEnabled(false);
-
-        // 创建数据集并添加到图表
-        LineDataSet lightDataSet = createLightSet();
-        LineData data = new LineData(lightDataSet);
-        data.setValueTextSize(10f);  // 设置数值文字大小
-        lightChart.setData(data);
-        lightChart.invalidate();
+        Tools.setupLightChart(lightChart, this);
     }
 
-    /**
-     * 向图表添加新的光线数据点
-     * 优化了数据点管理和滚动效果
-     * @param lightLevel 光照强度值
-     */
     private void addLightEntry(float lightLevel) {
-        LineData data = lightChart.getData();
-        if (data == null) {
-            // 如果没有数据，创建新数据集
-            LineDataSet set = createLightSet();
-            data = new LineData(set);
-            lightChart.setData(data);
-        }
-
-        ILineDataSet set = data.getDataSetByIndex(0);
-        if (set == null) {
-            set = createLightSet();
-            data.addDataSet(set);
-        }
-
-        // 控制数据点数量和滚动效果
-        final int MAX_VISIBLE_POINTS = 100;  // 最大可见点数常量，便于维护
-        final int MAX_TOTAL_POINTS = 1000;   // 总保留点数上限，防止内存占用过大
-
-        // 添加新数据点
-        data.addEntry(new Entry(set.getEntryCount(), lightLevel), 0);
-
-        // 移除过多的点以优化性能
-        if (set.getEntryCount() > MAX_TOTAL_POINTS) {
-            set.removeEntry(0);
-        }
-
-        // 通知数据更新
-        data.notifyDataChanged();
-        lightChart.notifyDataSetChanged();
-
-        // 优化滚动效果
-        lightChart.setVisibleXRangeMaximum(MAX_VISIBLE_POINTS);
-        lightChart.moveViewToX(data.getEntryCount() - 1);
-
-        // 可选：添加边界检查，确保图表显示范围在合理区间
-        if (lightLevel > lightChart.getAxisLeft().getAxisMaximum()) {
-            // 如果新数据超出当前Y轴范围，适当调整
-            lightChart.getAxisLeft().setAxisMaximum(lightLevel + lightLevel * 0.1f);
-            lightChart.invalidate();
-        }
-    }
-
-    /**
-     * 创建光线图表的数据集样式
-     * 优化后的数据集更加美观，提供渐变色填充效果
-     * @return 配置好的LineDataSet对象
-     */
-    private LineDataSet createLightSet() {
-        LineDataSet set = new LineDataSet(null, "光照强度 (lux)");
-
-        // 线条样式
-        set.setLineWidth(2.5f);  // 稍微加粗线条
-        set.setColor(Color.rgb(33, 150, 243));  // 使用Material Design蓝色
-        set.setMode(LineDataSet.Mode.CUBIC_BEZIER);  // 平滑曲线
-
-        // 数据点样式
-        set.setDrawCircles(true);  // 显示数据点，增强可读性
-        set.setCircleRadius(3f);   // 适当的圆点大小
-        set.setCircleColor(Color.rgb(33, 150, 243));  // 与线条颜色一致
-        set.setCircleHoleRadius(1.5f);  // 设置圆点空心部分大小
-        set.setCircleHoleColor(Color.WHITE);  // 圆点中心为白色
-
-        // 数值显示
-        set.setDrawValues(false);  // 默认不显示数值
-
-        // 高亮效果
-        set.setHighlightEnabled(true);  // 启用高亮
-        set.setHighLightColor(Color.rgb(244, 67, 54));  // 高亮颜色使用红色
-        set.setHighlightLineWidth(1.5f);  // 高亮线宽度
-
-        // 填充效果
-        set.setDrawFilled(true);
-
-        // 使用渐变填充效果
-        // 填充渐变 - 从蓝色过渡到透明
-        Drawable gradientDrawable = new GradientDrawable(
-                GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[] {
-                        Color.argb(150, 33, 150, 243),  // 半透明蓝色
-                        Color.argb(50, 33, 150, 243),   // 更透明的蓝色
-                        Color.argb(20, 33, 150, 243)    // 几乎透明的蓝色
-                }
-        );
-        set.setFillDrawable(gradientDrawable);
-
-        return set;
+        Tools.addLightEntry(lightChart, lightLevel, this);
     }
 
 }
