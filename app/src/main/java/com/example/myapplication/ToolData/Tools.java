@@ -42,6 +42,29 @@ public class Tools {
 
 
     /**
+     * 获取随机的粒子颜色 (示例：白色、黄色、橙色系)
+     *
+     * @return Color int
+     */
+    public static int getRandomParticleColor() {
+        int[] colors = {
+                Color.WHITE,
+                Color.YELLOW,
+                0xFFFFA500, // Orange
+                0xFFFFE4B5  // Moccasin (淡黄)
+        };
+        return colors[random.nextInt(colors.length)];
+    }
+
+    /**
+     * 辅助方法：将 dp 转换为 px
+     */
+    public static int dpToPx(Context context, int dp) {
+        float density = context.getResources().getDisplayMetrics().density;
+        return Math.round((float) dp * density);
+    }
+
+    /**
      * 加载今天的数据
      */
     public static int[] loadTodayData(Context context) {
@@ -51,7 +74,8 @@ public class Tools {
             return new int[]{todayRecord.getCount(), todayRecord.getPleasureLevel()};
         } else {
             Log.d(TAG, "没有找到今天的数据");
-            return new int[]{0, 0};}
+            return new int[]{0, 0};
+        }
 
     }
 

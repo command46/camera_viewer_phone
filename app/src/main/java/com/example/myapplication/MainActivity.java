@@ -1,5 +1,7 @@
 package com.example.myapplication;
 
+import static com.example.myapplication.ToolData.Tools.dpToPx;
+import static com.example.myapplication.ToolData.Tools.getRandomParticleColor;
 import static com.example.myapplication.ToolData.Tools.isValidIpAddress;
 import static com.example.myapplication.ToolData.Tools.showMonthlyViewDialog;
 
@@ -13,7 +15,6 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Point;
@@ -82,7 +83,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private Button connectButton;
     private EditText ipAddressEditText;
     private String ipAddress; // 用于存储当前 Activity 中验证通过并用于启动服务的 IP 地址
-    private SharedPreferences sharedPreferences;
     private SwitchMaterial CameraStreamServiceSwitch; // 重启开关
 
 
@@ -128,9 +128,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         });
         // 获取今天的日期键
         todayDateKey = dateFormat.format(Calendar.getInstance().getTime());
-
-        // 初始化 SharedPreferences
-        sharedPreferences = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
 
         // 初始化传感器
         initSensors();
@@ -460,8 +457,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         if (container == null) return;
 
         int heartCount = 100; // 爱心数量
-        int minHeartSize = dpToPx(15);
-        int maxHeartSize = dpToPx(35);
+        int minHeartSize = dpToPx(this,15);
+        int maxHeartSize = dpToPx(this,35);
         long maxStaggerDelay = 800; // 爱心出现的时间更分散
 
         // 获取容器尺寸
@@ -469,7 +466,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         int containerHeight = container.getHeight();
         // 爱心起始位置在底部中心区域
         float startXBase = containerWidth / 2f;
-        float startY = containerHeight - dpToPx(20); // 稍微离底部一点
+        float startY = containerHeight - dpToPx(this,20); // 稍微离底部一点
         float startXVariance = containerWidth * 0.1f; // X轴起始位置的随机范围
 
         Log.d(TAG, "创建爱心喷泉");
@@ -552,8 +549,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         if (sourceView == null || container == null) return;
 
         int particleCount = 40; // 可以稍微减少粒子数，如果50仍然卡顿
-        int minParticleSize = dpToPx(3);
-        int maxParticleSize = dpToPx(8);
+        int minParticleSize = dpToPx(this,3);
+        int maxParticleSize = dpToPx(this,8);
 
         // 获取起点坐标 (同前)
         int[] sourcePos = new int[2];
@@ -631,28 +628,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         }
     }
 
-    /**
-     * 获取随机的粒子颜色 (示例：白色、黄色、橙色系)
-     *
-     * @return Color int
-     */
-    private int getRandomParticleColor() {
-        int[] colors = {
-                Color.WHITE,
-                Color.YELLOW,
-                0xFFFFA500, // Orange
-                0xFFFFE4B5  // Moccasin (淡黄)
-        };
-        return colors[random.nextInt(colors.length)];
-    }
-
-    /**
-     * 辅助方法：将 dp 转换为 px
-     */
-    private int dpToPx(int dp) {
-        float density = getResources().getDisplayMetrics().density;
-        return Math.round((float) dp * density);
-    }
 
 
     /**
@@ -755,36 +730,26 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         // --- 结束新增 ---
     }
 
-    /**
-     * 从 SharedPreferences 加载保存的 IP 地址和重启设置
-     */
     private void loadSavedPreferences() {
-        String savedIpAddress = sharedPreferences.getString(KEY_IP_ADDRESS, ""); // 默认空字符串
-        boolean savedRestartPref = sharedPreferences.getBoolean(KEY_RESTART_SERVICE, true); // 默认开启重启
-
-        ipAddressEditText.setText(savedIpAddress);
-        CameraStreamServiceSwitch.setChecked(savedRestartPref);
-
-        Log.d(TAG, "已加载保存的设置: IP=" + savedIpAddress + ", Restart=" + savedRestartPref);
+        ipAddressEditText.setText(JsonDataStorage.getString(this, KEY_IP_ADDRESS, ""));
+        CameraStreamServiceSwitch.setChecked(JsonDataStorage.getBoolean(this, KEY_RESTART_SERVICE, true));
     }
 
     /**
-     * 保存 IP 地址和重启设置到 SharedPreferences
+     * 保存 IP 地址和重启设置到 JsonDataStorage
      */
     private void savePreferences(String ip, boolean restartEnabled) {
-        SharedPreferences.Editor editor = sharedPreferences.edit();
-        editor.putString(KEY_IP_ADDRESS, ip);
-        editor.putBoolean(KEY_RESTART_SERVICE, restartEnabled);
-        editor.apply(); // 异步保存
-        Log.i(TAG, "已保存设置: IP=" + ip + ", Restart=" + restartEnabled);
+        JsonDataStorage.saveString(this, KEY_IP_ADDRESS, ip);
+        JsonDataStorage.saveBoolean(this, KEY_RESTART_SERVICE, restartEnabled);
+        Log.i(TAG, "已保存设置到 JsonDataStorage: IP=" + ip + ", Restart=" + restartEnabled);
     }
 
     /**
-     * 单独保存重启设置到 SharedPreferences (当开关状态改变时调用)
+     * 单独保存重启设置到 JsonDataStorage (当开关状态改变时调用)
      */
     private void saveRestartPreference(boolean restartEnabled) {
-        sharedPreferences.edit().putBoolean(KEY_RESTART_SERVICE, restartEnabled).apply();
-        Log.i(TAG, "已更新重启设置: " + restartEnabled);
+        JsonDataStorage.saveBoolean(this, KEY_RESTART_SERVICE, restartEnabled);
+        Log.i(TAG, "已保存重启设置到 JsonDataStorage: Restart=" + restartEnabled);
     }
 
 
