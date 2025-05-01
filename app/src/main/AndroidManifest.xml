@@ -1,41 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
-
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+    xmlns:tools="http://schemas.android.com/tools"
+    package="com.example.myapplication">
 
-    <uses-feature
-        android:name="android.hardware.camera"
-        android:required="false" />
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <!-- ****** 权限声明 ****** -->
+
+    <!-- 核心功能权限 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
-    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    <!-- 网络权限：允许应用创建网络套接字 -->
-    <uses-permission android:name="android.permission.INTERNET" />
-    <!-- 相机权限：允许应用访问相机设备 -->
     <uses-permission android:name="android.permission.CAMERA" />
-    <!-- 前台服务权限：允许应用运行前台服务 (Android 9+) -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <!-- 通知权限：允许应用发布通知 (Android 13+) -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    <!-- 相机类型的前台服务权限 (Android 14+, 如果 targetSdk >= 34) -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
-    <!-- 开机启动权限：允许应用在设备启动完成后接收广播 -->
+    <!-- 运行前台服务 (Android 9+) -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- 接收开机广播 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- 发送通知 (Android 13+) -->
 
-    <!-- 声明应用需要相机硬件 -->
+    <!-- 特定类型的前台服务权限 (如果 targetSdk >= 34，对应类型是必需的) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- 如果 VideoService 需要 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <!-- 如果服务需要与 BT/USB 设备交互 -->
+
+    <!-- 其他可能需要的权限 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+
+    <!-- ****** 硬件特性声明 ****** -->
+    <!-- 声明应用需要相机硬件 (至少一个摄像头) -->
     <uses-feature android:name="android.hardware.camera.any" android:required="true" />
-    <!-- 声明应用可以使用自动对焦功能（非必需） -->
+    <!-- 声明应用可以使用自动对焦功能（非强制要求） -->
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -45,43 +45,9 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.MyApplication"
-        tools:targetApi="31">
-        <service
-            android:name=".CameraStreamService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="camera|connectedDevice">
-            <intent-filter>
-                <action android:name="com.example.myapplication.CameraStreamService" />
-            </intent-filter>
-        </service>
-        <receiver android:name=".RestartServiceReceiver"
-            android:enabled="true"
-            android:exported="true">  <!--  Android 12+  exported 必须显式设置 -->
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="RestartCameraService" />  <!-- 自定义 Action -->
-            </intent-filter>
-        </receiver>
-        <service
-            android:name=".PhotoService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="camera|connectedDevice">
-            <intent-filter>
-                <action android:name="com.example.myapplication.PhotoService" />
-            </intent-filter>
-        </service>
-        <service
-            android:name=".VideoService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="camera|microphone|connectedDevice">
-            <intent-filter>
-                <action android:name="com.example.myapplication.VideoService" />
-            </intent-filter>
-        </service>
+        >
 
+        <!-- ****** Activity 声明 ****** -->
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -90,5 +56,32 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-    </application>
-</manifest>
+        <service
+            android:name=".CameraStreamService"
+            android:enabled="true"
+            android:exported="false"
+        android:foregroundServiceType="camera">
+    </service>
+
+
+    <!-- ****** Receiver 声明 ****** -->
+
+    <!-- 用于接收开机广播和可能的自定义重启 Action 的接收器 -->
+    <!-- 确保你的 Java/Kotlin 代码中接收器的名字是 RestartServiceReceiver -->
+    <receiver android:name=".RestartServiceReceiver"
+        android:enabled="true"
+        android:exported="true">
+        <intent-filter>
+
+            <action android:name="android.intent.action.BOOT_COMPLETED" />
+            <!-- (可选) 监听其他可能相关的启动 Action -->
+            <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+            <!-- (可选) 监听你自定义的重启 Action -->
+             <action android:name="RestartCameraService" />
+        </intent-filter>
+    </receiver>
+
+
+</application>
+
+    </manifest>

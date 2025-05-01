@@ -33,12 +33,14 @@ import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Random;
 
 public class Tools {
     private static final String TAG = "Tools";
     // 日期格式化器，用于生成记录键（YYYY-MM-DD）
     private static final SimpleDateFormat dateFormat =
             new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault());
+    private static final Random random = new Random();
 
 
     /**
