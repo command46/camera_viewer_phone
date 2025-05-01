@@ -30,10 +30,11 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
-import android.os.Looper; // 引入 Looper
+import android.os.Looper;
 import android.os.SystemClock;
 import android.text.TextUtils;
 import android.util.Log;
+import android.util.Patterns;
 import android.util.Size;
 import android.view.Surface;
 import android.widget.Toast;
@@ -74,7 +75,6 @@ public class CameraStreamService extends Service {
     private static final int JPEG_QUALITY = 70;
     private static final String PREFS_NAME = "CameraServicePrefs";
     private static final String KEY_IP_ADDRESS = "last_ip_address";
-    private static final String KEY_RESTART_SERVICE = "restart_service_flag";
     private static final String KEY_RETRY_COUNT = "retry_count";
     private static final int MAX_RETRIES = 3;
     private static final long RETRY_DELAY_MS = 1000; // 调试时可以缩短延迟为 1 秒
@@ -188,6 +188,8 @@ public class CameraStreamService extends Service {
         if (activeStreamCount.compareAndSet(0, 2)) {
             Log.i(TAG,"onStartCommand: activeStreamCount 为 0，开始连接和打开相机...");
             connectAndOpenCamerasAsync();
+            Log.d(TAG, "定时检查开始");
+            AlarmScheduler.scheduleServiceCheck(this);
         } else {
             Log.w(TAG, "onStartCommand: 服务已在运行中 (activeStreamCount=" + activeStreamCount.get() + ")，忽略新的启动请求。");
             // 如果服务已在运行，并且是手动启动，可能需要考虑先停止再启动，或者直接忽略。
@@ -195,7 +197,30 @@ public class CameraStreamService extends Service {
             // 对于自动重启，如果服务已在运行（可能之前的停止流程未完成？），忽略是合理的。
         }
 
+        // 只有在 IP 地址有效且服务准备好运行时才启动
+        if (TextUtils.isEmpty(this.ipAddress) || !Patterns.IP_ADDRESS.matcher(this.ipAddress).matches()) {
+            Log.e(TAG, "onStartCommand: 启动时缺少有效 IP 地址。停止。");
+            stopSelfSafely(); // 触发 onDestroy -> 重试逻辑
+            Log.i(TAG, "<<< 服务 onStartCommand 结束 (因缺少 IP 而停止)");
+            return START_NOT_STICKY; // 返回 NOT_STICKY，因为没有有效 IP 无法重启
+        }
+
+        // 只有在首次启动或重启时才执行初始化
+        if (activeStreamCount.compareAndSet(0, 1)) {
+            Log.i(TAG,"onStartCommand: activeStreamCount 为 0，开始连接和打开相机...");
+            showToast("服务正在初始化...");
+            connectAndOpenCamerasAsync();
+            AlarmScheduler.scheduleServiceCheck(this);
+            Log.i(TAG, "服务已启动，已安排定时检查。");
+            // --- 结束添加 ---
+        } else {
+            Log.w(TAG, "onStartCommand: 服务已在运行中 (activeStreamCount=" + activeStreamCount.get() + ")，忽略新的启动请求。");
+            // 如果服务已经在运行，确保通知是最新的 (例如，IP 地址可能已更改)
+            showToast("服务运行中: " + this.ipAddress);
+        }
+
         Log.i(TAG, "<<< 服务 onStartCommand 结束 (返回 START_STICKY)");
+        // 使用 START_STICKY 尝试让系统在杀死服务后重启它
         return START_STICKY;
     }
 
@@ -205,7 +230,13 @@ public class CameraStreamService extends Service {
         Log.w(TAG, ">>> 服务 onDestroy 开始...");
         shutdownAndCleanup();
 
-        boolean shouldRestart = sharedPreferences.getBoolean(KEY_RESTART_SERVICE, false);
+//        // --- 在服务销毁时取消定时检查 ---
+//        AlarmScheduler.cancelServiceCheck(this);
+//        Log.i(TAG, "服务已销毁，已取消定时检查。");
+        // --- 结束添加 ---
+
+        // 检查是否需要重启服务
+        boolean shouldRestart = sharedPreferences.getBoolean(MainActivity.KEY_RESTART_SERVICE, false);
         Log.d(TAG, "onDestroy: 检查重启逻辑，shouldRestart=" + shouldRestart);
 
         if (shouldRestart) {
@@ -239,11 +270,6 @@ public class CameraStreamService extends Service {
                     long triggerAtMillis = SystemClock.elapsedRealtime() + RETRY_DELAY_MS;
 
                     try {
-                        // 设置一次性闹钟
-                        // setExactAndAllowWhileIdle 允许在低电耗模式下执行，但需要权限 (SCHEDULE_EXACT_ALARM)
-                        // setAndAllowWhileIdle 允许在低电耗模式下执行，但不精确
-                        // set() 不保证在低电耗模式下执行
-                        // 为了简单起见，先使用 set() 或 setAndAllowWhileIdle (如果API >= 23)
                         alarmManager.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAtMillis, pendingIntent);
                         Log.i(TAG, "onDestroy: 使用 setAndAllowWhileIdle 设置了闹钟");
                     } catch (SecurityException se) {
@@ -263,7 +289,6 @@ public class CameraStreamService extends Service {
                     Log.e(TAG, "onDestroy: 无法获取 AlarmManager！无法安排重启。");
                     showToast("无法安排自动重启");
                 }
-                // --- AlarmManager 设置结束 ---
 
                 final String retryMsg = "连接中断，将在 " + (RETRY_DELAY_MS / 1000) + " 秒后尝试重新连接 (" + nextRetryAttempt + "/" + MAX_RETRIES + ")...";
                 showToast(retryMsg); // Toast 仍然可能因为时机问题不显示，但 AlarmManager 是可靠的

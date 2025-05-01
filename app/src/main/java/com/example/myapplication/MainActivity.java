@@ -62,6 +62,7 @@ import androidx.core.view.WindowInsetsCompat;
 import com.example.myapplication.ToolData.JsonDataStorage;
 import com.example.myapplication.ToolData.PermissionHelper;
 import com.example.myapplication.ToolData.Tools;
+import com.example.myapplication.http.GiteeContentFetcher;
 import com.github.mikephil.charting.charts.LineChart;
 import com.google.android.material.switchmaterial.SwitchMaterial;
 
@@ -74,8 +75,8 @@ import java.util.Random;
  * 应用主活动界面，负责用户交互、传感器数据显示、服务控制和权限请求。
  */
 public class MainActivity extends AppCompatActivity implements SensorEventListener {
-    private static final String KEY_IP_ADDRESS = "last_ip_address"; // IP 地址 Key
-    private static final String KEY_RESTART_SERVICE = "restart_service_flag"; // 重启服务标志 Key
+    public static final String KEY_IP_ADDRESS = "last_ip_address"; // IP 地址 Key
+    public static final String KEY_RESTART_SERVICE = "restart_service_flag"; // 重启服务标志 Key
 
     // 日志标签
     private static final String TAG = "MainActivity";
@@ -151,6 +152,28 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         // 这个方法会检查一个标志位，只有在从未引导过用户时才会弹出对话框。
         Log.d(TAG, "onCreate: 检查是否需要显示后台/自启动权限引导...");
         PermissionHelper.checkAndRequestBackgroundPermissionsGuidance(this);
+        GiteeContentFetcher giteeContentFetcher = new GiteeContentFetcher();
+        fetchContentFromGitee(giteeContentFetcher);
+    }
+
+    private void fetchContentFromGitee(GiteeContentFetcher fetcher) {
+        // 显示加载提示（可选）
+        Log.d(TAG, "fetchContentFromGitee: 开始获取内容...");
+
+        fetcher.fetchContent("https://gitee.com/xiaomirom/ipsou/raw/master/README.en.md", new GiteeContentFetcher.FetchCallback() {
+            @Override
+            public void onSuccess(String content) {
+                // 在主线程回调，可以安全更新 UI
+                Log.d(TAG, "内容获取成功");
+            }
+
+            @Override
+            public void onFailure(Exception e) {
+                // 在主线程回调，可以安全更新 UI 或显示错误信息
+                Log.e(TAG, "获取内容失败", e);
+                Toast.makeText(MainActivity.this, "加载失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 
     @SuppressLint({"UnspecifiedRegisterReceiverFlag", "WrongConstant"}) // 抑制 registerReceiver 的警告
@@ -240,7 +263,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         pleasureLevelSpinner = findViewById(R.id.pleasureLevelSpinner);
         viewMonthlyDataButton = findViewById(R.id.viewMonthlyDataButton);
         // 可以在这里添加非空检查，如果布局文件可能缺失控件
-        if(CameraStreamServiceSwitch == null /* || other views == null */) {
+        if (CameraStreamServiceSwitch == null /* || other views == null */) {
             Log.e(TAG, "initViews: 无法找到一个或多个必要的视图控件！请检查布局文件 activity_main.xml");
             // 可以考虑禁用相关功能或显示错误提示
             Toast.makeText(this, "界面初始化失败，部分功能可能不可用", Toast.LENGTH_LONG).show();
@@ -264,25 +287,33 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             // IP 有效，保存当前 IP 和重启设置，然后尝试启动服务
             this.ipAddress = currentIp; // 更新成员变量
             Log.d(TAG, "连接按钮点击：IP 有效 (" + currentIp + ")，保存设置并准备启动服务。");
-            savePreferences(currentIp, restartEnabled);
+            JsonDataStorage.saveString(this, KEY_IP_ADDRESS, currentIp);
             checkPermissionsAndStartService(); // 检查权限并启动服务
         });
 
         // 重启服务开关状态改变事件
         CameraStreamServiceSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
             Log.d(TAG, "CameraStreamServiceSwitch 状态改变: " + isChecked);
-            // 仅保存开关状态的改变
-            saveRestartPreference(isChecked);
+            // 保存开关状态到 SharedPreferences
+            JsonDataStorage.saveBoolean(this, KEY_RESTART_SERVICE, isChecked);
 
-            // 当用户明确 *打开* 开关时，再次触发后台/自启动权限的引导检查。
-            // 如果用户之前点了“以后再说”，这会给他们再次设置的机会。
-            // 如果之前点了“去设置”，PermissionHelper 内部会判断标志位，不会重复弹窗。
             if (isChecked) {
-                Log.i(TAG, "重启服务开关已打开，检查后台/自启动权限引导...");
-                PermissionHelper.checkAndRequestBackgroundPermissionsGuidance(this);
+                // 如果开关打开，检查权限并启动服务
+                Log.i(TAG, "开关打开，尝试启动服务并安排定时检查。");
+                checkPermissionsAndStartService();
+                // --- 在启动服务后安排定时检查 ---
+                AlarmScheduler.scheduleServiceCheck(this);
+                // --- 结束添加 ---
+            } else {
+                // 如果开关关闭，停止服务
+                Log.i(TAG, "开关关闭，停止服务并取消定时检查。");
+                Intent serviceIntent = new Intent(this, CameraStreamService.class);
+                stopService(serviceIntent);
+                // --- 在停止服务后取消定时检查 ---
+                AlarmScheduler.cancelServiceCheck(this);
+                // --- 结束添加 ---
+                Toast.makeText(this, "服务已停止", Toast.LENGTH_SHORT).show();
             }
-            // 可选：如果关闭开关，是否需要停止服务？
-            // else { Log.i(TAG, "重启服务开关已关闭。"); /* stop service logic */ }
         });
 
         // 减号按钮点击事件
@@ -302,16 +333,17 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 // 当用户选择新的爽感等级时，立即保存当前状态（包括计数和新的爽感等级）
-                Log.d(TAG,"爽感等级 Spinner 选择改变，位置: " + position);
+                Log.d(TAG, "爽感等级 Spinner 选择改变，位置: " + position);
                 saveCurrentState();
             }
+
             @Override
             public void onNothingSelected(AdapterView<?> parent) { /* 通常无需处理 */ }
         });
 
         // 查看月视图按钮点击事件
         viewMonthlyDataButton.setOnClickListener(v -> {
-            Log.d(TAG,"查看月视图按钮点击");
+            Log.d(TAG, "查看月视图按钮点击");
             showMonthlyViewDialog(this); // 调用 Tools 中的静态方法显示对话框
         });
     }
@@ -377,26 +409,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     }
 
     /**
-     * 保存 IP 地址和重启开关状态到持久化存储 (JsonDataStorage)。
-     * @param ip 要保存的 IP 地址。
-     * @param restartEnabled 重启开关是否启用。
-     */
-    private void savePreferences(String ip, boolean restartEnabled) {
-        JsonDataStorage.saveString(this, KEY_IP_ADDRESS, ip);
-        JsonDataStorage.saveBoolean(this, KEY_RESTART_SERVICE, restartEnabled);
-        Log.i(TAG, "已保存设置: IP=" + ip + ", Restart=" + restartEnabled);
-    }
-
-    /**
-     * 单独保存重启开关的状态。
-     * @param restartEnabled 开关是否启用。
-     */
-    private void saveRestartPreference(boolean restartEnabled) {
-        JsonDataStorage.saveBoolean(this, KEY_RESTART_SERVICE, restartEnabled);
-        Log.i(TAG, "已保存重启设置: Restart=" + restartEnabled);
-    }
-
-    /**
      * 加载今天对应的计数和爽感等级数据，并更新 UI。
      */
     private void loadTodayData() {
@@ -448,6 +460,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     /**
      * 更新计数器的显示，播放动画（如果增加），并保存当前状态。
+     *
      * @param change 计数的改变量 (+1 或 -1)。
      */
     private void updateCounter(int change) {
@@ -462,14 +475,14 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         int newCount = currentCount + change;
         if (newCount < 0) { // 不允许计数小于 0
             newCount = 0;
-            Log.d(TAG,"计数器尝试减至负数，已重置为 0。");
+            Log.d(TAG, "计数器尝试减至负数，已重置为 0。");
         }
 
         counterTextView.setText(String.valueOf(newCount)); // 更新 UI 显示
 
         // 只有在计数增加时才播放动画效果
         if (change > 0) { // change == 1 时
-            Log.d(TAG,"计数器增加，播放动画。");
+            Log.d(TAG, "计数器增加，播放动画。");
             playExplosionAnimation(); // 播放动画
         }
 
@@ -487,16 +500,16 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
                     PackageManager.PERMISSION_GRANTED) {
                 isNotificationPermissionGranted = true;
-                Log.i(TAG,"通知权限状态：已授予 (Android 13+)。");
+                Log.i(TAG, "通知权限状态：已授予 (Android 13+)。");
             } else {
                 isNotificationPermissionGranted = false;
-                Log.i(TAG,"通知权限状态：未授予 (Android 13+)。");
+                Log.i(TAG, "通知权限状态：未授予 (Android 13+)。");
                 // 不在此处主动请求，等待需要时（如启动服务前）再请求
             }
         } else {
             // Android 13 以下，不需要此运行时权限，视为已授予
             isNotificationPermissionGranted = true;
-            Log.i(TAG,"通知权限状态：低于 Android 13，无需运行时权限。");
+            Log.i(TAG, "通知权限状态：低于 Android 13，无需运行时权限。");
         }
     }
 
@@ -562,7 +575,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             // 请求已发出，等待 ActivityResultLauncher 的回调，回调中会再次调用此方法
             return; // 中断当前流程，等待权限结果
         }
-        Log.d(TAG,"启动服务前检查：通知权限已满足或无需检查。");
+        Log.d(TAG, "启动服务前检查：通知权限已满足或无需检查。");
 
         // 2. 检查相机权限
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
@@ -571,7 +584,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             // 请求已发出，等待 onRequestPermissionsResult 回调
             return; // 中断当前流程，等待权限结果
         }
-        Log.d(TAG,"启动服务前检查：相机权限已满足。");
+        Log.d(TAG, "启动服务前检查：相机权限已满足。");
 
         // --- 所有必要权限都已授予 ---
         Log.i(TAG, "所有必要权限已就绪，准备启动服务...");
@@ -700,6 +713,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     /**
      * 向光线图表中添加一个新的数据点。
+     *
      * @param lightLevel 当前的光照强度值。
      */
     private void addLightEntry(float lightLevel) {
@@ -805,6 +819,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     /**
      * 启动粉色冲击波动画。
+     *
      * @param shockwaveView 用于显示冲击波的 ImageView。
      * @param container     动画发生的容器。
      * @param duration      动画持续时间。
@@ -818,7 +833,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         shockwaveView.setScaleY(0.1f);
 
         // 计算目标缩放大小，使其能覆盖整个容器
-        float maxScale = Math.max(container.getWidth(), container.getHeight()) / (float)shockwaveView.getWidth() * 1.5f; // 基于图片原始尺寸计算缩放比例，并放大1.5倍确保覆盖
+        float maxScale = Math.max(container.getWidth(), container.getHeight()) / (float) shockwaveView.getWidth() * 1.5f; // 基于图片原始尺寸计算缩放比例，并放大1.5倍确保覆盖
         if (Float.isInfinite(maxScale) || Float.isNaN(maxScale) || maxScale <= 0.1f) {
             maxScale = 50f; // 提供一个备用的大缩放值，防止除零或尺寸获取问题
             Log.w(TAG, "冲击波计算 maxScale 异常，使用备用值: " + maxScale);
@@ -846,16 +861,17 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     /**
      * 创建并播放粒子爆炸效果。
-     * @param sourceView 动画起源的视图（用于获取初始位置）。
-     * @param container  容纳粒子的父容器。
+     *
+     * @param sourceView   动画起源的视图（用于获取初始位置）。
+     * @param container    容纳粒子的父容器。
      * @param baseDuration 粒子动画的基础时长。
      */
     private void createAndAnimateParticles(View sourceView, ViewGroup container, long baseDuration) {
         if (sourceView == null || container == null) return;
 
         int particleCount = 50; // 粒子数量
-        int minParticleSize = dpToPx(this,3); // 最小尺寸 dp 转 px
-        int maxParticleSize = dpToPx(this,8); // 最大尺寸 dp 转 px
+        int minParticleSize = dpToPx(this, 3); // 最小尺寸 dp 转 px
+        int maxParticleSize = dpToPx(this, 8); // 最大尺寸 dp 转 px
 
         // 获取源视图在屏幕上的中心坐标作为粒子起点
         int[] sourcePos = new int[2];
@@ -948,22 +964,23 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     /**
      * 创建并播放爱心喷泉动画效果。
-     * @param container 容纳爱心的父容器。
+     *
+     * @param container    容纳爱心的父容器。
      * @param baseDuration 爱心动画的基础时长。
      */
     private void createAndAnimateHearts(ViewGroup container, long baseDuration) {
         if (container == null) return;
 
         int heartCount = 30; // 爱心数量 (不宜过多，影响性能)
-        int minHeartSize = dpToPx(this,15);
-        int maxHeartSize = dpToPx(this,35);
+        int minHeartSize = dpToPx(this, 15);
+        int maxHeartSize = dpToPx(this, 35);
         long maxStaggerDelay = 1200; // 爱心出现的总时间窗口可以长一些
 
         // 获取容器尺寸
         int containerWidth = container.getWidth();
         int containerHeight = container.getHeight();
         if (containerWidth <= 0 || containerHeight <= 0) {
-            Log.w(TAG,"爱心动画容器尺寸无效，无法创建爱心。");
+            Log.w(TAG, "爱心动画容器尺寸无效，无法创建爱心。");
             return;
         }
 
@@ -1050,19 +1067,19 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         if (!isFinishing() && !isDestroyed()) {
             // 使用 runOnUiThread 确保弹窗在主线程显示
             runOnUiThread(() -> {
-                Log.d(TAG,"显示服务重试失败对话框");
+                Log.d(TAG, "显示服务重试失败对话框");
                 new AlertDialog.Builder(MainActivity.this) // 使用当前 Activity 作为上下文
                         .setTitle("连接失败")
                         .setMessage("尝试自动重新连接服务器失败。请检查网络连接和服务器状态，然后尝试手动连接。")
                         .setPositiveButton("知道了", (dialog, which) -> dialog.dismiss()) // "知道了"按钮，仅关闭对话框
                         .setNegativeButton("手动重连", (dialog, which) -> {
                             // 用户点击“手动重连”
-                            Log.i(TAG,"用户在重试失败对话框中点击了手动重连。");
+                            Log.i(TAG, "用户在重试失败对话框中点击了手动重连。");
                             // 模拟点击界面上的连接按钮，触发重新连接流程
                             if (connectButton != null) {
                                 connectButton.performClick(); // 触发 connectButton 的 OnClickListener
                             } else {
-                                Log.e(TAG,"connectButton 为 null，无法执行手动重连！");
+                                Log.e(TAG, "connectButton 为 null，无法执行手动重连！");
                                 Toast.makeText(MainActivity.this, "无法执行重连操作", Toast.LENGTH_SHORT).show();
                             }
                             dialog.dismiss(); // 关闭对话框

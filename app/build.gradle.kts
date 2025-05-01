@@ -33,7 +33,7 @@ android {
 }
 
 dependencies {
-    
+    implementation(libs.okhttp) // 请检查并使用最新的稳定版本
     implementation (libs.gson)
     implementation (libs.cardview)
     implementation(libs.mpandroidchart)

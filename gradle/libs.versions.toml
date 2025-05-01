@@ -13,6 +13,7 @@ cameraCore = "1.4.1"
 cameraLifecycle = "1.4.1"
 materialCalendarview = "2.0.1"
 mpandroidchart = "v3.1.0"
+okhttp = "4.11.0"
 
 [libraries]
 cardview = { module = "androidx.cardview:cardview", version.ref = "cardview" }
@@ -28,6 +29,7 @@ camera-core = { group = "androidx.camera", name = "camera-core", version.ref = "
 camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "cameraLifecycle" }
 material-calendarview = { module = "com.prolificinteractive:material-calendarview", version.ref = "materialCalendarview" }
 mpandroidchart = { module = "com.github.PhilJay:MPAndroidChart", version.ref = "mpandroidchart" }
+okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
