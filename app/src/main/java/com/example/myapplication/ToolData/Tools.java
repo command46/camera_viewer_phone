@@ -97,7 +97,7 @@ public class Tools {
      */
     public static boolean isValidIpAddress(String ip) {
         // 检查非空且符合 IP 地址的格式
-        return TextUtils.isEmpty(ip) || !Patterns.IP_ADDRESS.matcher(ip).matches();
+        return !TextUtils.isEmpty(ip) && Patterns.IP_ADDRESS.matcher(ip).matches();
     }
 
     public static void setupLightChart(LineChart lightChart, Context context) {

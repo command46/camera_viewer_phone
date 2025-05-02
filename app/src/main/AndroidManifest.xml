@@ -1,45 +1,63 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    package="com.example.myapplication">
+    package="com.example.myapplication">  <!-- 确保这是你正确的包名 -->
 
     <!-- ****** 权限声明 ****** -->
 
-    <!-- 核心功能权限 -->
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
-    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- 1. 网络权限 -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <!-- 运行前台服务 (Android 9+) -->
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- 接收开机广播 -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    <!-- 发送通知 (Android 13+) -->
-
-    <!-- 特定类型的前台服务权限 (如果 targetSdk >= 34，对应类型是必需的) -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
-    <!-- 如果 VideoService 需要 -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
-    <!-- 如果服务需要与 BT/USB 设备交互 -->
-
-    <!-- 其他可能需要的权限 -->
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- 2. 前台服务权限 (核心权限 + 特定类型权限 for targetSdk >= 34) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- 以下特定类型权限仅当 targetSdkVersion >= 34 时才严格需要在此声明 -->
+    <!-- 否则仅在 <service> 标签的 foregroundServiceType 中声明即可 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" /> <!-- 如果 CameraStreamService 用麦克风 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" /> <!-- WorkManager 上传服务需要 -->
+    <!-- <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" /> --> <!-- 如果需要连接 BT/USB 设备 -->
+
+    <!-- 3. 存储权限 (用于 UploadWorker 读取 MediaStore) -->
+    <!-- Android 10 (API 29) 及以上 -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <!-- <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" /> --> <!-- 如果需要同步音频 -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <!-- 4. 硬件相关权限 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" /> <!-- 如果 CameraStreamService 需要录音 -->
+
+    <!-- 5. 其他后台与唤醒权限 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" /> <!-- 接收开机广播以启动服务/任务 -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" /> <!-- 允许服务/任务在后台短暂保持唤醒 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" /> <!-- 发送通知 (Android 13+) -->
+
+    <!-- 6. 精确闹钟权限 (谨慎使用) -->
+    <!-- 从 Android 12 开始需要特殊授权，从 Android 14 开始对大多数应用受限 -->
+    <!-- 除非绝对必要，否则考虑使用非精确闹钟或 WorkManager -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- 从 Android 13 开始推荐添加，即使有 SCHEDULE_EXACT_ALARM -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
 
     <!-- ****** 硬件特性声明 ****** -->
     <!-- 声明应用需要相机硬件 (至少一个摄像头) -->
-    <uses-feature android:name="android.hardware.camera.any" android:required="true" />
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="true" />
     <!-- 声明应用可以使用自动对焦功能（非强制要求） -->
-    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <uses-feature
+        android:name="android.hardware.camera.autofocus"
+        android:required="false" />
+    <!-- 如果服务需要用到麦克风，建议也声明 -->
+    <uses-feature
+        android:name="android.hardware.microphone"
+        android:required="false" />
 
 
     <application
         android:name=".MyApplication"
-        android:usesCleartextTraffic="true"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -48,9 +66,8 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.MyApplication"
-        >
-
-        <!-- ****** Activity 声明 ****** -->
+        android:usesCleartextTraffic="true"
+        tools:targetApi="34">
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -59,14 +76,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 其他组件声明... -->
         <service
             android:name=".Service.CameraStreamService"
             android:enabled="true"
             android:exported="false"
-        android:foregroundServiceType="camera">
-    </service>
+            android:foregroundServiceType="camera|microphone" />
 
-        <!-- 开机广播接收器 -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
+
         <receiver
             android:name=".BootReceiver"
             android:enabled="true"
@@ -75,7 +98,12 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
-        <!-- WorkManager 初始化 (通常由库自动处理) -->
+
+        <receiver
+            android:name=".Service.ServiceRestartReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"
@@ -83,24 +111,10 @@
             tools:node="merge">
             <meta-data
                 android:name="androidx.work.WorkManagerInitializer"
-                android:value="androidx.startup"
-                tools:node="remove" />
+                android:value="androidx.startup" />
+            <!-- 假设已启用自动初始化 -->
         </provider>
 
-        <!-- 如果需要支持 Android 12+ 的前台服务启动限制 -->
-        <!-- <service
-            android:name="androidx.work.impl.foreground.SystemForegroundService"
-            android:foregroundServiceType="dataSync"
-            tools:node="merge" /> -->
+    </application>
 
-
-    <!-- 用于接收 AlarmManager 定时唤醒事件的接收器 -->
-    <receiver
-        android:name=".Service.ServiceRestartReceiver"
-        android:enabled="true"
-        android:exported="false" />
-
-
-</application>
-
-    </manifest>
+</manifest>
