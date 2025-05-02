@@ -42,16 +42,18 @@ public class RetrofitClient {
             synchronized (RetrofitClient.class) {
                 if (apiService == null) {
                     // --- 初始化逻辑 ---
-                    String storedIp = JsonDataStorage.getString(context.getApplicationContext(), KEY_IP_ADDRESS, null) + ":5000"; // 使用 Application Context
-                    Log.d(TAG, "读取存储的 IP 地址: " + storedIp);
-
-                    if (TextUtils.isEmpty(storedIp) || storedIp.equals("NULL")) {
+                    // 从存储中获取 IP 地址，并拼接端口号 (确保端口在这里处理)
+                    String savedIp = JsonDataStorage.getString(context.getApplicationContext(), KEY_IP_ADDRESS, null);
+                    if (TextUtils.isEmpty(savedIp) || savedIp.equalsIgnoreCase("null")) { // 添加对 "null" 字符串的检查
                         Log.e(TAG, "无法获取有效的 IP 地址，请先在设置中配置。 Key: " + KEY_IP_ADDRESS);
                         throw new IllegalStateException("未配置有效的服务器 IP 地址。请在应用设置中配置。");
                     }
 
+                    String ipWithPort = savedIp + ":5000"; // 拼接端口
+                    Log.d(TAG, "读取存储的 IP 地址并拼接端口: " + ipWithPort);
+
                     // 构建 Base URL (确保格式正确，例如以 / 结尾)
-                    String newBaseUrl = formatBaseUrl(storedIp);
+                    String newBaseUrl = formatBaseUrl(ipWithPort);
                     Log.i(TAG, "构建 Base URL: " + newBaseUrl);
 
                     // 创建 Retrofit 实例
@@ -62,11 +64,8 @@ public class RetrofitClient {
                 }
             }
         } else {
-            // 如果实例已存在，可以考虑检查 Base URL 是否有变化 (如果需要支持动态更新)
-            // 为了简化，这里假设初始化后 URL 不变。如果需要动态更新，逻辑会更复杂。
-            //Log Url
-            Log.v(TAG, "当前使用的 Base URL: " + currentBaseUrl);
-            Log.v(TAG, "返回已缓存的 ApiService 实例。");
+            // Log.v(TAG, "当前使用的 Base URL: " + currentBaseUrl); // 减少 V 级日志
+            Log.d(TAG, "返回已缓存的 ApiService 实例。Base URL: " + currentBaseUrl);
         }
         return apiService;
     }
@@ -78,35 +77,38 @@ public class RetrofitClient {
      */
     private static Retrofit buildRetrofitInstance(String baseUrl) {
         HttpLoggingInterceptor logging = new HttpLoggingInterceptor();
-        logging.setLevel(HttpLoggingInterceptor.Level.BODY); // 设置日志级别
+        // --- 关键修改：将日志级别从 BODY 改为 HEADERS ---
+        // 设置为 Level.BODY 会在上传大文件时读取整个文件到内存导致 OOM
+        // Level.HEADERS 只记录请求/响应行和头部，足够调试且安全
+        logging.setLevel(HttpLoggingInterceptor.Level.HEADERS); // <-- 修改此处
 
         OkHttpClient client = new OkHttpClient.Builder()
-                .addInterceptor(logging)
+                .addInterceptor(logging) // 添加日志拦截器
                 .connectTimeout(30, TimeUnit.SECONDS) // 连接超时
-                .readTimeout(30, TimeUnit.SECONDS)    // 读取超时
-                .writeTimeout(30, TimeUnit.SECONDS)   // 写入超时
+                .readTimeout(60, TimeUnit.SECONDS)    // 读取超时 (上传大文件可能需要更长时间)
+                .writeTimeout(60, TimeUnit.SECONDS)   // 写入超时 (上传大文件可能需要更长时间)
                 .build();
 
         return new Retrofit.Builder()
                 .baseUrl(baseUrl)
-                .client(client)
-                .addConverterFactory(GsonConverterFactory.create())
+                .client(client) // 使用配置好的 OkHttpClient
+                .addConverterFactory(GsonConverterFactory.create()) // 使用 Gson 解析 JSON
                 .build();
     }
 
     /**
-     * 格式化 Base URL，确保以 "http://" 或 "https://" 开头，并以 "/" 结尾。
-     * @param ipOrUrl 输入的 IP 地址或 URL
-     * @return 格式化的 Base URL
+     * 格式化 Base URL，确保以 "http://" 开头，并以 "/" 结尾。
+     * @param ipOrUrl 输入的 IP 地址或 IP:端口
+     * @return 格式化的 Base URL (例如 "http://192.168.1.100:5000/")
      */
     private static String formatBaseUrl(String ipOrUrl) {
         if (TextUtils.isEmpty(ipOrUrl)) {
+            Log.e(TAG, "formatBaseUrl 接收到空的 ipOrUrl");
             return ""; // 或者抛出异常
         }
         String url = ipOrUrl.trim();
-        // 简单处理，假设用户输入的是 IP:端口 或者 http://IP:端口
+        // 检查是否已包含协议头，如果没有，则添加 http://
         if (!url.matches("^(http|https)://.*")) {
-            // 假设是 IP 或 IP:端口，默认使用 http
             url = "http://" + url;
         }
         // 确保以 "/" 结尾
@@ -121,26 +123,30 @@ public class RetrofitClient {
      * 调用此方法会清除缓存的实例，下次调用 getApiService 时会重新初始化。
      *
      * @param context 用于读取新 IP 的 Context
-     * @param newIp 新的 IP 地址
+     * @param newIp 新的 IP 地址 (不含端口)
      */
     public static synchronized void updateBaseUrl(Context context, String newIp) {
-        String newBaseUrl = formatBaseUrl(newIp);
-        if (!TextUtils.isEmpty(newBaseUrl) && !newBaseUrl.equals(currentBaseUrl)) {
+        if (TextUtils.isEmpty(newIp) || newIp.equalsIgnoreCase("null")){
+            Log.w(TAG, "尝试更新 Base URL，但新 IP 无效或为 'null'。");
+            return;
+        }
+        String newIpWithPort = newIp + ":5000"; // 拼接端口
+        String newBaseUrl = formatBaseUrl(newIpWithPort);
+
+        if (!newBaseUrl.equals(currentBaseUrl)) {
             Log.i(TAG, "Base URL 发生变化，清除旧实例。旧: " + currentBaseUrl + ", 新: " + newBaseUrl);
             retrofit = null;
             apiService = null;
             currentBaseUrl = DEFAULT_IP_PLACEHOLDER; // 重置状态，强制下次重新初始化
             // 注意：更新配置后，需要调用 getApiService(context) 才能使新配置生效
-        } else if (TextUtils.isEmpty(newBaseUrl)) {
-            Log.w(TAG, "尝试更新 Base URL，但新 IP 无效。");
         } else {
-            Log.d(TAG, "尝试更新 Base URL，但与当前 URL 相同，无需操作。");
+            Log.d(TAG, "尝试更新 Base URL，但与当前 URL 相同 ("+ currentBaseUrl +")，无需操作。");
         }
     }
 
     /**
      * (可选) 获取当前配置的 Base URL (主要用于调试或显示)
-     * @return 当前使用的 Base URL，如果未初始化则返回 null 或占位符
+     * @return 当前使用的 Base URL，如果未初始化则返回 null
      */
     public static String getCurrentBaseUrl() {
         return (currentBaseUrl.equals(DEFAULT_IP_PLACEHOLDER)) ? null : currentBaseUrl;
