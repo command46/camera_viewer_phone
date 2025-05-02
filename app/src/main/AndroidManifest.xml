@@ -38,6 +38,7 @@
 
 
     <application
+        android:usesCleartextTraffic="true"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -58,33 +59,43 @@
             </intent-filter>
         </activity>
         <service
-            android:name=".CameraStreamService"
+            android:name=".Service.CameraStreamService"
             android:enabled="true"
             android:exported="false"
         android:foregroundServiceType="camera">
     </service>
 
+        <!-- 开机广播接收器 -->
+        <receiver
+            android:name=".receiver.BootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+        <!-- WorkManager 初始化 (通常由库自动处理) -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
 
-    <!-- ****** Receiver 声明 ****** -->
+        <!-- 如果需要支持 Android 12+ 的前台服务启动限制 -->
+        <!-- <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" /> -->
 
-    <!-- 用于接收开机广播和可能的自定义重启 Action 的接收器 -->
-    <!-- 确保你的 Java/Kotlin 代码中接收器的名字是 RestartServiceReceiver -->
-    <receiver android:name=".RestartServiceReceiver"
-        android:enabled="true"
-        android:exported="true">
-        <intent-filter>
-
-            <action android:name="android.intent.action.BOOT_COMPLETED" />
-            <!-- (可选) 监听其他可能相关的启动 Action -->
-            <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
-            <!-- (可选) 监听你自定义的重启 Action -->
-             <action android:name="RestartCameraService" />
-        </intent-filter>
-    </receiver>
 
     <!-- 用于接收 AlarmManager 定时唤醒事件的接收器 -->
     <receiver
-        android:name=".ServiceRestartReceiver"
+        android:name=".Service.ServiceRestartReceiver"
         android:enabled="true"
         android:exported="false" />
 

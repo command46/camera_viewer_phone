@@ -1,5 +1,5 @@
 // --- START OF FILE RestartServiceReceiver.java (无需修改) ---
-package com.example.myapplication;
+package com.example.myapplication.Service;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -8,6 +8,7 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.widget.Toast;
 
+import com.example.myapplication.MainActivity;
 import com.example.myapplication.ToolData.JsonDataStorage;
 
 // RestartServiceReceiver.java (广播接收器 - 无需修改)

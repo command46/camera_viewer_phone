@@ -1,5 +1,5 @@
 // --- START OF FILE CameraStreamService.java (增强日志和检查) ---
-package com.example.myapplication;
+package com.example.myapplication.Service;
 
 import android.Manifest;
 import android.app.AlarmManager;
@@ -43,6 +43,10 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
+
+import com.example.myapplication.AlarmScheduler;
+import com.example.myapplication.MainActivity;
+import com.example.myapplication.R;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
