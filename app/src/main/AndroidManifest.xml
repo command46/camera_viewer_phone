@@ -38,6 +38,7 @@
 
 
     <application
+        android:name=".MyApplication"
         android:usesCleartextTraffic="true"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -67,7 +68,7 @@
 
         <!-- 开机广播接收器 -->
         <receiver
-            android:name=".receiver.BootReceiver"
+            android:name=".BootReceiver"
             android:enabled="true"
             android:exported="true">
             <intent-filter>

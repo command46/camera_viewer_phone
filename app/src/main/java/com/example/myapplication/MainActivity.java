@@ -3,7 +3,6 @@ package com.example.myapplication;
 // 基础和 UI 相关的导入
 
 import static com.example.myapplication.ToolData.Tools.dpToPx;
-import static com.example.myapplication.ToolData.Tools.getRandomParticleColor;
 import static com.example.myapplication.ToolData.Tools.isValidIpAddress;
 import static com.example.myapplication.ToolData.Tools.showMonthlyViewDialog;
 
@@ -19,7 +18,6 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
-import android.graphics.Point;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -28,14 +26,11 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.util.Log;
-import android.view.Display;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.AccelerateInterpolator;
-import android.view.animation.DecelerateInterpolator;
 import android.view.animation.LinearInterpolator;
-import android.view.animation.OvershootInterpolator;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
@@ -65,7 +60,6 @@ import com.example.myapplication.ToolData.PermissionHelper;
 import com.example.myapplication.ToolData.Tools;
 import com.example.myapplication.http.GiteeContentFetcher;
 import com.github.mikephil.charting.charts.LineChart;
-import com.google.android.material.switchmaterial.SwitchMaterial;
 
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
@@ -75,7 +69,7 @@ import java.util.Random;
 /**
  * 应用主活动界面，负责用户交互、传感器数据显示、服务控制和权限请求。
  */
-public class MainActivity extends AppCompatActivity implements SensorEventListener {
+public class MainActivity extends AppCompatActivity implements SensorEventListener, PermissionHelper.PermissionsGrantedCallback {
     public static final String KEY_IP_ADDRESS = "last_ip_address"; // IP 地址 Key
     public static final String KEY_RESTART_SERVICE = "restart_service_flag"; // 重启服务标志 Key
 
@@ -84,12 +78,11 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     // 权限请求码
     private static final int CAMERA_PERMISSION_REQUEST_CODE = 100;
-    private static final int PERMISSION_REQUEST_CODE = 1001; // 其他权限组 (如果需要)
+    // 其他权限组 (如果需要)
 
     // UI 控件
     private Button connectButton;
     private EditText ipAddressEditText;
-    private SwitchMaterial CameraStreamServiceSwitch; // 重启服务开关
     private TextView lightSensorTextView; // 光线传感器文本显示
     private LineChart lightChart; // 光线图表
     private ImageButton decrementButton; // 减号按钮
@@ -254,7 +247,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
      * 初始化界面上的各个视图控件。
      */
     private void initViews() {
-        CameraStreamServiceSwitch = findViewById(R.id.CameraStreamServiceSwitch);
         connectButton = findViewById(R.id.connectButton);
         ipAddressEditText = findViewById(R.id.ipAddressEditText);
         lightChart = findViewById(R.id.lightChart);
@@ -263,12 +255,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         counterTextView = findViewById(R.id.countTextView);
         pleasureLevelSpinner = findViewById(R.id.pleasureLevelSpinner);
         viewMonthlyDataButton = findViewById(R.id.viewMonthlyDataButton);
-        // 可以在这里添加非空检查，如果布局文件可能缺失控件
-        if (CameraStreamServiceSwitch == null /* || other views == null */) {
-            Log.e(TAG, "initViews: 无法找到一个或多个必要的视图控件！请检查布局文件 activity_main.xml");
-            // 可以考虑禁用相关功能或显示错误提示
-            Toast.makeText(this, "界面初始化失败，部分功能可能不可用", Toast.LENGTH_LONG).show();
-        }
     }
 
     /**
@@ -278,7 +264,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         // 连接按钮点击事件
         connectButton.setOnClickListener(v -> {
             String currentIp = ipAddressEditText.getText().toString().trim();
-            boolean restartEnabled = CameraStreamServiceSwitch.isChecked(); // 获取当前开关状态
             // 验证 IP 地址格式 (使用 ToolData.Tools 中的方法)
             if (isValidIpAddress(currentIp)) { // 注意: isValidIpAddress 应该返回 true 表示 *无效*
                 Toast.makeText(this, "请输入有效的 IP 地址", Toast.LENGTH_SHORT).show();
@@ -289,31 +274,17 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             this.ipAddress = currentIp; // 更新成员变量
             Log.d(TAG, "连接按钮点击：IP 有效 (" + currentIp + ")，保存设置并准备启动服务。");
             JsonDataStorage.saveString(this, KEY_IP_ADDRESS, currentIp);
+
             checkPermissionsAndStartService(); // 检查权限并启动服务
-        });
-
-        // 重启服务开关状态改变事件
-        CameraStreamServiceSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            Log.d(TAG, "CameraStreamServiceSwitch 状态改变: " + isChecked);
-            // 保存开关状态到 SharedPreferences
-            JsonDataStorage.saveBoolean(this, KEY_RESTART_SERVICE, isChecked);
-
-            if (isChecked) {
-                // 如果开关打开，检查权限并启动服务
-                Log.i(TAG, "开关打开，尝试启动服务并安排定时检查。");
-                checkPermissionsAndStartService();
-                // --- 在启动服务后安排定时检查 ---
-                AlarmScheduler.scheduleServiceCheck(this);
-                // --- 结束添加 ---
+            boolean permissionsAlreadyGranted = PermissionHelper.checkAndRequestEssentialPermissions(this, this);
+            if (permissionsAlreadyGranted) {
+                Log.d(TAG, "权限已满足 (来自 checkAndRequest 的直接返回)，可以继续。");
+                // 可以在这里再次确认是否需要显示后台引导
+                PermissionHelper.checkAndRequestBackgroundPermissionsGuidance(this);
             } else {
-                // 如果开关关闭，停止服务
-                Log.i(TAG, "开关关闭，停止服务并取消定时检查。");
-                Intent serviceIntent = new Intent(this, CameraStreamService.class);
-                stopService(serviceIntent);
-                // --- 在停止服务后取消定时检查 ---
-                AlarmScheduler.cancelServiceCheck(this);
-                // --- 结束添加 ---
-                Toast.makeText(this, "服务已停止", Toast.LENGTH_SHORT).show();
+                Log.d(TAG, "权限不足，已发起请求，等待用户响应...");
+                Toast.makeText(this, "请允许所有权限", Toast.LENGTH_LONG).show();
+                connectButton.setEnabled(false);
             }
         });
 
@@ -405,7 +376,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
         ipAddressEditText.setText(savedIp);
         this.ipAddress = savedIp; // 同时更新成员变量
-        CameraStreamServiceSwitch.setChecked(restartEnabled);
         Log.i(TAG, "已加载保存的设置: IP=" + savedIp + ", Restart=" + restartEnabled);
     }
 
@@ -593,47 +563,38 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         startSelectedServices();
     }
 
-    // 处理 ActivityCompat.requestPermissions 的结果回调
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        Log.d(TAG, "onRequestPermissionsResult - RequestCode: " + requestCode + ", Permissions: " + String.join(",", permissions));
 
-        if (requestCode == CAMERA_PERMISSION_REQUEST_CODE) {
-            // 检查相机权限请求的结果
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                // 相机权限被授予
-                Log.i(TAG, "相机权限请求结果：已授予。");
-                // 相机权限OK，再次调用检查流程，它会继续检查或直接启动服务
-                checkPermissionsAndStartService();
+        boolean permissionGranted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+
+        if (requestCode == PermissionHelper.CAMERA_PERMISSION_REQUEST_CODE) {
+            if (permissionGranted) {
+                Log.i(TAG, "相机权限请求结果：已授予。重新检查权限流程...");
+                // 权限被授予，再次调用检查方法，它会继续检查下一个权限或调用回调
+                PermissionHelper.checkAndRequestEssentialPermissions(this, this);
             } else {
-                // 相机权限被拒绝
                 Log.e(TAG, "相机权限请求结果：被拒绝！");
-                Toast.makeText(this, "必须授予相机权限才能启动摄像头服务！", Toast.LENGTH_LONG).show();
-                // 可以选择禁用连接按钮或显示更强的提示
-                // connectButton.setEnabled(false); // 例如
+                // 使用 PermissionHelper 处理拒绝情况，特别是“不再询问”
+                PermissionHelper.handlePermissionDenied(this, Manifest.permission.CAMERA, grantResults, "相机");
+                // 可能需要更新 UI，例如禁用按钮
+                // connectButton.setEnabled(false);
             }
-        } else if (requestCode == PERMISSION_REQUEST_CODE) {
-            // 处理其他权限组（如果之前定义了）
-            boolean allGranted = true;
-            if (grantResults.length == 0) {
-                allGranted = false;
-            } else {
-                for (int result : grantResults) {
-                    if (result != PackageManager.PERMISSION_GRANTED) {
-                        allGranted = false;
-                        break;
-                    }
+        } else if (requestCode == PermissionHelper.NOTIFICATION_PERMISSION_REQUEST_CODE) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                if (permissionGranted) {
+                    Log.i(TAG, "通知权限请求结果：已授予。重新检查权限流程...");
+                    // 权限被授予，再次调用检查方法
+                    PermissionHelper.checkAndRequestEssentialPermissions(this, this);
+                } else {
+                    Log.e(TAG, "通知权限请求结果：被拒绝！");
+                    PermissionHelper.handlePermissionDenied(this, Manifest.permission.POST_NOTIFICATIONS, grantResults, "通知");
+                    connectButton.setEnabled(false);
                 }
             }
-            if (allGranted) {
-                Log.i(TAG, "其他权限组 (" + requestCode + ") 已授予。");
-                checkPermissionsAndStartService(); // 重新检查并启动
-            } else {
-                Log.e(TAG, "其他权限组 (" + requestCode + ") 被拒绝！");
-                Toast.makeText(this, "需要所有请求的权限才能启动服务", Toast.LENGTH_SHORT).show();
-            }
         }
-        // 通知权限的结果由 ActivityResultLauncher 处理，不在这里处理
     }
 
 
@@ -649,10 +610,14 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             Toast.makeText(this, "无法启动服务：IP 地址无效", Toast.LENGTH_SHORT).show();
             return;
         }
-
         Log.i(TAG, "准备启动服务，目标 IP: " + this.ipAddress);
-        // 目前只启动 CameraStreamService
         startCameraStreamService();
+        startFileUploadService();
+    }
+
+    private void startFileUploadService() {
+        Log.i(TAG, "尝试启动 FileUploadService (手动)...");
+        BootReceiver.schedulePeriodicUploadWork(this);
     }
 
     /**
@@ -705,8 +670,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     @Override
     public void onAccuracyChanged(Sensor sensor, int accuracy) {
-        // 通常不需要处理传感器精度的变化
-        // Log.d(TAG, "传感器 " + sensor.getName() + " 精度变化: " + accuracy);
     }
 
 
@@ -755,48 +718,15 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         Log.d(TAG, "开始播放浮夸版爆炸动画 (粒子+冲击波+爱心)");
 
         // 定义动画参数
-        long textAnimDuration = 800;       // "爽"字动画时长
-        long textAppearDelay = 50;         // "爽"字出现延迟
-        long particleAnimBaseDuration = 1500; // 粒子动画基础时长
-        long shockwaveDelay = textAnimDuration / 3 + textAppearDelay; // 冲击波在"爽"字放大一些后开始
         long shockwaveDuration = 1000;     // 冲击波动画时长
-        long heartStartDelay = shockwaveDelay + shockwaveDuration / 4; // 冲击波扩散一小会后开始爱心
+        long heartStartDelay = shockwaveDuration / 4; // 冲击波扩散一小会后开始爱心
         long heartAnimBaseDuration = 2500; // 爱心动画基础时长 (更长)
-        long maxHeartDuration = (long) (heartAnimBaseDuration * 1.3);
-
-        // 计算覆盖层移除的延迟，确保所有动画都播放完毕
-        long overlayRemovalDelay = Math.max(shockwaveDelay + shockwaveDuration, heartStartDelay + maxHeartDuration) + 500; // 增加一点缓冲时间
-
-        // 1. "爽" 字动画 (中心放大然后消失，结束后触发粒子)
-        explosionText.setAlpha(0f); // 初始透明
-        explosionText.setScaleX(0.5f);
-        explosionText.setScaleY(0.5f);
-        explosionText.animate()
-                .setStartDelay(textAppearDelay)
-                .alpha(1f)
-                .scaleX(1.8f) // 放大倍数
-                .scaleY(1.8f)
-                .setDuration(textAnimDuration)
-                .setInterpolator(new OvershootInterpolator(2f)) // 使用 Overshoot 增加弹性效果
-                .setListener(new AnimatorListenerAdapter() {
-                    @Override
-                    public void onAnimationEnd(Animator animation) {
-                        // "爽"字动画结束，立即开始淡出并触发粒子
-                        explosionText.animate()
-                                .alpha(0f)
-                                .setDuration(200) // 快速淡出
-                                .setListener(null) // 清除监听器
-                                .start();
-                        createAndAnimateParticles(explosionText, overlayRoot, particleAnimBaseDuration);
-                    }
-                })
-                .start();
 
         // 2. 粉色冲击波动画 (延迟启动)
         shockwaveImageView.setVisibility(View.INVISIBLE); // 先隐藏
         shockwaveImageView.postDelayed(() -> {
             startShockwaveAnimation(shockwaveImageView, overlayRoot, shockwaveDuration);
-        }, shockwaveDelay);
+        }, 100);
 
 
         // 3. 爱心喷泉动画 (更晚延迟启动)
@@ -815,7 +745,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             } else {
                 Log.w(TAG, "尝试移除动画覆盖层，但未找到或已不在根视图中。");
             }
-        }, overlayRemovalDelay);
+        }, 100);
     }
 
     /**
@@ -858,109 +788,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         });
         shockwaveSet.start();
         Log.d(TAG, "冲击波动画开始，目标 scale: " + maxScale);
-    }
-
-    /**
-     * 创建并播放粒子爆炸效果。
-     *
-     * @param sourceView   动画起源的视图（用于获取初始位置）。
-     * @param container    容纳粒子的父容器。
-     * @param baseDuration 粒子动画的基础时长。
-     */
-    private void createAndAnimateParticles(View sourceView, ViewGroup container, long baseDuration) {
-        if (sourceView == null || container == null) return;
-
-        int particleCount = 50; // 粒子数量
-        int minParticleSize = dpToPx(this, 3); // 最小尺寸 dp 转 px
-        int maxParticleSize = dpToPx(this, 8); // 最大尺寸 dp 转 px
-
-        // 获取源视图在屏幕上的中心坐标作为粒子起点
-        int[] sourcePos = new int[2];
-        sourceView.getLocationOnScreen(sourcePos);
-        // 考虑状态栏高度，如果需要更精确的相对容器位置 (但通常屏幕坐标足够)
-        // int statusBarHeight = 0;
-        // int resourceId = getResources().getIdentifier("status_bar_height", "dimen", "android");
-        // if (resourceId > 0) { statusBarHeight = getResources().getDimensionPixelSize(resourceId); }
-        // float startX = sourcePos[0] + sourceView.getWidth() / 2f;
-        // float startY = sourcePos[1] - statusBarHeight + sourceView.getHeight() / 2f; // 减去状态栏高度
-        float startX = sourcePos[0] + sourceView.getWidth() / 2f;
-        float startY = sourcePos[1] + sourceView.getHeight() / 2f;
-
-
-        // 获取屏幕尺寸，用于计算粒子散开的距离
-        Display display = getWindowManager().getDefaultDisplay();
-        Point size = new Point();
-        display.getSize(size);
-        int screenWidth = size.x;
-        int screenHeight = size.y;
-        // 定义粒子散开的最大和最小距离
-        float maxDistance = Math.max(screenWidth, screenHeight) * 0.6f;
-        float minDistance = maxDistance * 0.2f;
-
-        // 粒子动画启动的交错延迟，让它们不是同时开始
-        long maxStaggerDelay = 300; // 所有粒子在 300ms 内陆续启动
-
-        Log.d(TAG, "创建粒子 (数量: " + particleCount + ")，起点: (" + startX + ", " + startY + ")");
-
-        for (int i = 0; i < particleCount; i++) {
-            // 创建单个粒子视图
-            final View particle = new View(this);
-            particle.setBackgroundColor(getRandomParticleColor()); // 设置随机颜色
-            int particleSize = random.nextInt(maxParticleSize - minParticleSize + 1) + minParticleSize;
-            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(particleSize, particleSize);
-
-            // 将粒子添加到容器中，并设置初始状态
-            try {
-                container.addView(particle, params);
-                // 初始位置设置为源视图中心，需要相对于 container 调整 (如果 container 不是全屏)
-                // 简单处理：直接使用屏幕坐标，假设 container 是全屏覆盖层
-                particle.setX(startX - particleSize / 2f);
-                particle.setY(startY - particleSize / 2f);
-                particle.setAlpha(1f); // 初始完全不透明
-                particle.setScaleX(1.0f); // 初始大小
-                particle.setScaleY(1.0f);
-            } catch (Exception e) {
-                Log.e(TAG, "添加粒子视图到容器时出错", e);
-                continue; // 跳过这个粒子
-            }
-
-
-            // 计算随机的飞行方向、距离和旋转角度
-            double angle = random.nextDouble() * 2 * Math.PI; // 随机角度 (0 to 2PI)
-            float distance = random.nextFloat() * (maxDistance - minDistance) + minDistance; // 随机距离
-            float translationX = (float) (distance * Math.cos(angle)); // X 轴位移
-            float translationY = (float) (distance * Math.sin(angle)); // Y 轴位移
-            float rotation = random.nextFloat() * 720 - 360; // 随机旋转 (-360 to +360 度)
-
-            // 随机化每个粒子的动画时长
-            long duration = (long) (baseDuration * (random.nextFloat() * 0.6 + 0.7)); // 70% 到 130% 的基础时长
-
-            // 计算每个粒子的启动延迟
-            long startDelay = (long) (((float) i / particleCount) * maxStaggerDelay);
-
-            // 使用 ViewPropertyAnimator 执行动画
-            particle.animate()
-                    .setStartDelay(startDelay) // 设置启动延迟
-                    .translationXBy(translationX) // 在 X 轴上移动
-                    .translationYBy(translationY) // 在 Y 轴上移动
-                    .alpha(0f) // 动画结束时完全透明
-                    .rotationBy(rotation) // 旋转
-                    .scaleX(0.5f) // 缩小
-                    .scaleY(0.5f)
-                    .setDuration(duration) // 设置动画时长
-                    .setInterpolator(new DecelerateInterpolator(1.5f)) // 使用减速插值器
-                    .setListener(new AnimatorListenerAdapter() {
-                        @Override
-                        public void onAnimationEnd(Animator animation) {
-                            // 动画结束后，从父容器中移除粒子视图
-                            if (particle.getParent() instanceof ViewGroup) {
-                                ((ViewGroup) particle.getParent()).removeView(particle);
-                            }
-                        }
-                    })
-                    .withLayer() // 尝试使用硬件层加速动画（对复杂动画有帮助）
-                    .start();
-        }
     }
 
     /**
@@ -1093,4 +920,14 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         }
     }
 
+    @Override
+    public void onPermissionsGranted() {
+        Log.i(TAG, "PermissionHelper 回调：所有必需的运行时权限已授予！");
+        // 在这里执行权限满足后的操作，例如启动服务
+        startSelectedServices();
+        // 可以在获得运行时权限后，再检查是否需要后台/自启动引导
+        Log.d(TAG, "运行时权限通过，现在检查后台/自启动引导...");
+        PermissionHelper.checkAndRequestBackgroundPermissionsGuidance(this);
+        if (connectButton != null) connectButton.setEnabled(true);
+    }
 }
